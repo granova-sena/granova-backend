@@ -1,28 +1,26 @@
 {
-  "name": "granova-backend-develop",
+  "type": "module",
+  "name": "granova-backend",
   "version": "1.0.0",
-  "description": "Backend de Granova - Node.js + Express + PostgreSQL",
+  "description": "",
   "main": "servidor.js",
   "scripts": {
-    "dev": "nodemon servidor.js",
-    "start": "node servidor.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
-  "devDependencies": {
-    "nodemon": "^3.1.14"
-  },
   "dependencies": {
-    "@supabase/supabase-js": "^2.110.1",
-    "bcryptjs": "^3.0.3",
+    "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.6.0",
+    "google-auth-library": "^10.7.0",
     "jsonwebtoken": "^9.0.3",
-    "mysql2": "^3.22.6",
-    "pg": "^8.22.0"
+    "multer": "^2.2.0",
+    "nodemailer": "^9.0.1",
+    "pg": "^8.22.0",
+    "xlsx": "^0.18.5"
   }
 }
