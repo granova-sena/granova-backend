@@ -86,22 +86,22 @@ export async function register(req, res) {
         const cliente = resultado.rows[0]
         const enlaceVerificacion = `${FRONTEND_URL}/verificar-cuenta?token=${tokenVerificacion}`
 
-        try {
-            await transportador.sendMail({
-                from: process.env.EMAIL_USER,
-                to: cliente.email,
-                subject: "Confirma tu cuenta - Granova",
-                html: `
-                    <h2>¡Bienvenido a Granova, ${cliente.nombre}! 🏴‍☠️</h2>
-                    <p>Confirma tu correo para activar tu cuenta y empezar a comprar. Este enlace expira en 24 horas.</p>
-                    <a href="${enlaceVerificacion}">Verificar mi cuenta</a>
-                `,
-            })
-        } catch (errorCorreo) {
-            // El cliente ya quedó creado en la BD; si el correo falla, no tumbamos
-            // el registro completo, pero sí lo dejamos ver en el log del servidor.
+        // Sin "await" a propósito: el cliente ya quedó creado en la BD, y no tiene
+        // sentido dejar al usuario esperando en pantalla mientras Gmail responde
+        // (puede tardar hasta 15s o fallar). El correo se envía en segundo plano;
+        // si falla, se ve en el log del servidor, pero no bloquea el registro.
+        transportador.sendMail({
+            from: process.env.EMAIL_USER,
+            to: cliente.email,
+            subject: "Confirma tu cuenta - Granova",
+            html: `
+                <h2>¡Bienvenido a Granova, ${cliente.nombre}! 🏴‍☠️</h2>
+                <p>Confirma tu correo para activar tu cuenta y empezar a comprar. Este enlace expira en 24 horas.</p>
+                <a href="${enlaceVerificacion}">Verificar mi cuenta</a>
+            `,
+        }).catch((errorCorreo) => {
             console.error("No se pudo enviar el correo de verificación:", errorCorreo.message)
-        }
+        })
 
         res.status(201).json({
             mensaje: "¡Bienvenido a la tripulación de Granova! Revisa tu correo para verificar tu cuenta antes de iniciar sesión. 🏴‍☠️",
@@ -253,7 +253,7 @@ export async function reenviarVerificacion(req, res) {
 
         const enlaceVerificacion = `${FRONTEND_URL}/verificar-cuenta?token=${tokenVerificacion}`
 
-        await transportador.sendMail({
+        transportador.sendMail({
             from: process.env.EMAIL_USER,
             to: cliente.email,
             subject: "Confirma tu cuenta - Granova",
@@ -263,6 +263,8 @@ export async function reenviarVerificacion(req, res) {
                 <p>Haz clic en el siguiente enlace para verificar tu cuenta. Este enlace expira en 24 horas.</p>
                 <a href="${enlaceVerificacion}">Verificar mi cuenta</a>
             `,
+        }).catch((errorCorreo) => {
+            console.error("No se pudo reenviar el correo de verificación:", errorCorreo.message)
         })
 
         res.json({ mensaje: "Si el correo existe y no está verificado, te reenviamos el enlace" })
@@ -450,7 +452,7 @@ export async function solicitarRecuperacion(req, res) {
 
         const enlace = `${FRONTEND_URL}/reset-password?token=${token}`
 
-        await transportador.sendMail({
+        transportador.sendMail({
             from: process.env.EMAIL_USER,
             to: cliente.email,
             subject: "Recupera tu contraseña - Granova",
@@ -460,6 +462,8 @@ export async function solicitarRecuperacion(req, res) {
                 <p>Haz clic en el siguiente enlace para crear una nueva contraseña. Este enlace expira en 1 hora.</p>
                 <a href="${enlace}">Restablecer contraseña</a>
             `,
+        }).catch((errorCorreo) => {
+            console.error("No se pudo enviar el correo de recuperación:", errorCorreo.message)
         })
 
         // Se elimina el res.json() duplicado que había al final
@@ -616,7 +620,7 @@ export async function solicitarRecuperacionAdmin(req, res) {
 
         const enlace = `${FRONTEND_URL}/reset-password-admin?token=${token}`
 
-        await transportador.sendMail({
+        transportador.sendMail({
             from: process.env.EMAIL_USER,
             to: usuario.email,
             subject: "Recupera tu contraseña - Granova Admin",
@@ -626,6 +630,8 @@ export async function solicitarRecuperacionAdmin(req, res) {
                 <p>Haz clic en el siguiente enlace para crear una nueva contraseña. Este enlace expira en 1 hora.</p>
                 <a href="${enlace}">Restablecer contraseña</a>
             `,
+        }).catch((errorCorreo) => {
+            console.error("No se pudo enviar el correo de recuperación (admin):", errorCorreo.message)
         })
 
         res.json({ mensaje: "Si el correo existe, recibirás un enlace de recuperación" })
