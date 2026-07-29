@@ -95,7 +95,7 @@ export async function register(req, res) {
             to: cliente.email,
             subject: "Confirma tu cuenta - Granova",
             html: `
-                <h2>¡Bienvenido a Granova, ${cliente.nombre}! 🏴‍☠️</h2>
+                <h2>¡Bienvenido a Granova, ${cliente.nombre}!</h2>
                 <p>Confirma tu correo para activar tu cuenta y empezar a comprar. Este enlace expira en 24 horas.</p>
                 <a href="${enlaceVerificacion}">Verificar mi cuenta</a>
             `,
@@ -104,7 +104,7 @@ export async function register(req, res) {
         })
 
         res.status(201).json({
-            mensaje: "¡Bienvenido a la tripulación de Granova! Revisa tu correo para verificar tu cuenta antes de iniciar sesión. 🏴‍☠️",
+            mensaje: "¡Bienvenido a la tripulación de Granova! Revisa tu correo para verificar tu cuenta antes de iniciar sesión.",
             cliente,
         })
 
