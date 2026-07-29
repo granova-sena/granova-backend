@@ -6,6 +6,7 @@ import pool from "../config/db.js"
 import crypto from "crypto"
 import transportador from "../config/email.js"
 
+
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || "http://localhost:3000/auth/google/callback"
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173"
 

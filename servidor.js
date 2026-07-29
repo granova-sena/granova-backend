@@ -22,6 +22,7 @@ app.use("/auth",      authRoutes)
 app.use("/usuarios",  usuariosRoutes)
 app.use("/asistente", asistenteRoutes)
 app.use("/fincas",    fincasRoutes)
+app.use("/productos", productosRoutes)
 
 app.use("/api/correo", correoRoutes)
 app.use("/api/productos", productosRoutes)
