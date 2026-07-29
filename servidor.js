@@ -1,5 +1,13 @@
 import express from "express"
 import "dotenv/config"
+import dns from "node:dns"
+
+// Railway (y otros proveedores cloud) no soportan salida a internet por IPv6.
+// Esto hace que Node prefiera direcciones IPv4 al resolver dominios externos
+// (Gmail, APIs, etc.), evitando errores "ENETUNREACH" como el que tuvimos
+// con el envío de correos.
+dns.setDefaultResultOrder("ipv4first")
+
 import authRoutes from "./routes/authRoutes.js"
 import usuariosRoutes from "./routes/usuariosRoutes.js"
 import cors from "cors"

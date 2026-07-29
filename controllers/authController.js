@@ -293,18 +293,10 @@ export async function googleCallback(req, res) {
 
         const payload = ticket.getPayload()
 
-        // Si ese correo ya pertenece a un administrador, no se mezcla con clientes:
-        // se corta acá antes de tocar la tabla clientes.
-        const esAdmin = await pool.query(
-            "SELECT email FROM usuarios WHERE email = $1",
-            [payload.email]
-        )
-
-        if (esAdmin.rows.length > 0) {
-            const errorMsg = encodeURIComponent("Ese correo pertenece a una cuenta de administrador. Inicia sesión desde el panel de administración.")
-            return res.redirect(`${FRONTEND_URL}/auth/callback?error=${errorMsg}`)
-        }
-
+        // Nota: un correo puede existir a la vez en "usuarios" (admin/empleado/gerente)
+        // y en "clientes" como identidades independientes. Los tokens de cliente nunca
+        // llevan "rol", así que verificarAdmin los rechaza igual — no hay forma de que
+        // esto le dé a alguien acceso al panel de admin por esta vía.
         let resultado = await pool.query(
             "SELECT * FROM clientes WHERE email = $1",
             [payload.email]
@@ -536,19 +528,9 @@ export async function googleOneTap(req, res) {
 
         const payload = ticket.getPayload()
 
-        // Mismo resguardo que en googleCallback: un correo de admin no puede
-        // colarse como cliente por esta vía.
-        const esAdmin = await pool.query(
-            "SELECT email FROM usuarios WHERE email = $1",
-            [payload.email]
-        )
-
-        if (esAdmin.rows.length > 0) {
-            return res.status(403).json({
-                error: "Ese correo pertenece a una cuenta de administrador. Inicia sesión desde el panel de administración.",
-            })
-        }
-
+        // Nota: mismo comentario que en googleCallback — un correo puede tener
+        // cuenta de cliente y de admin en paralelo sin riesgo, porque los tokens
+        // de cliente nunca llevan "rol" y verificarAdmin los rechaza igual.
         let resultado = await pool.query(
             "SELECT * FROM clientes WHERE email = $1",
             [payload.email]
