@@ -5,6 +5,13 @@ const calcCambio = (actual, anterior) => {
   return Math.round(((actual - anterior) / anterior) * 100);
 };
 
+function normalizar(texto) {
+  return String(texto || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
 const getResumen = async (req, res) => {
   try {
     const ventas = await pool.query(`
@@ -64,12 +71,13 @@ const getVentas = async (req, res) => {
         p.total,
         c.nombre, c.apellido, c.email,
         dp1.producto_nombre,
+        dp1.categoria_producto,
         dp_sum.cantidad_total
       FROM pedidos p
       JOIN clientes c ON c.id_cliente = p.id_cliente
       LEFT JOIN facturas f ON f.id_pedido = p.id_pedido
       LEFT JOIN LATERAL (
-        SELECT pr.nombre AS producto_nombre
+        SELECT pr.nombre AS producto_nombre, pr.categoria_producto
         FROM detalle_pedidos dp
         JOIN productos pr ON pr.id_producto = dp.id_producto
         WHERE dp.id_pedido = p.id_pedido
@@ -85,10 +93,12 @@ const getVentas = async (req, res) => {
     `);
 
     let ventas = result.rows.map(v => ({
+      id: v.id_pedido,
       factura: v.numero_factura || `Pedido #${v.id_pedido}`,
       cliente: `${v.nombre} ${v.apellido}`,
       email: v.email,
       producto: v.producto_nombre || 'Sin producto',
+      esMaquina: v.categoria_producto === 'maquina',
       cantidad: Number(v.cantidad_total) || 0,
       total: Number(v.total),
       estado: v.estado,
@@ -96,11 +106,12 @@ const getVentas = async (req, res) => {
     }));
 
     if (search) {
-      const q = search.toLowerCase();
+      const q = normalizar(search);
       ventas = ventas.filter(v =>
-        v.cliente.toLowerCase().includes(q) ||
-        v.producto.toLowerCase().includes(q) ||
-        v.factura.toLowerCase().includes(q)
+        normalizar(v.cliente).includes(q) ||
+        normalizar(v.producto).includes(q) ||
+        normalizar(v.factura).includes(q) ||
+        normalizar(v.email).includes(q)
       );
     }
 
@@ -138,7 +149,7 @@ const getClientes = async (req, res) => {
 const getProductosDisponibles = async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT id_producto, nombre, precio, stock
+      SELECT id_producto, nombre, precio, stock, categoria_producto
       FROM productos
       WHERE stock > 0
       ORDER BY nombre
@@ -179,7 +190,7 @@ const crearVenta = async (req, res) => {
       const cantidad = Number(item.cantidad);
       if (!cantidad || cantidad <= 0) throw new Error(`Cantidad inválida para ${producto.nombre}.`);
       if (cantidad > Number(producto.stock)) {
-        throw new Error(`Stock insuficiente para ${producto.nombre} (disponible: ${producto.stock} kg).`);
+        throw new Error(`Stock insuficiente para ${producto.nombre} (disponible: ${producto.stock}).`);
       }
 
       const precio_unitario = Number(producto.precio);
@@ -188,11 +199,14 @@ const crearVenta = async (req, res) => {
       detalles.push({ id_producto: producto.id_producto, cantidad, precio_unitario, subtotal });
     }
 
+    // Estados válidos: 'Pendiente' o 'Confirmado' (ya pagado/aceptado).
+    const estadoFinal = estado === 'Confirmado' ? 'Confirmado' : 'Pendiente';
+
     const pedidoResult = await client.query(`
       INSERT INTO pedidos (id_cliente, fecha_pedido, estado, metodo_pago, total)
       VALUES ($1, NOW(), $2, $3, $4)
       RETURNING id_pedido
-    `, [id_cliente, estado || 'Pendiente', metodo_pago || null, total]);
+    `, [id_cliente, estadoFinal, metodo_pago || null, total]);
 
     const id_pedido = pedidoResult.rows[0].id_pedido;
 
@@ -211,7 +225,7 @@ const crearVenta = async (req, res) => {
     await client.query(`
       INSERT INTO facturas (id_pedido, numero_factura, fecha_emision, subtotal, impuestos, total, estado)
       VALUES ($1, $2, NOW(), $3, 0, $3, $4)
-    `, [id_pedido, numeroFactura, total, estado || 'Pendiente']);
+    `, [id_pedido, numeroFactura, total, estadoFinal]);
 
     await client.query('COMMIT');
     res.json({ ok: true, id_pedido, numero_factura: numeroFactura, total });

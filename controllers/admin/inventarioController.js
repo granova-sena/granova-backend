@@ -17,6 +17,58 @@ function normalizar(texto) {
         .replace(/[\u0300-\u036f]/g, '');
 }
 
+// Lista corta de palabras a bloquear en la descripción. No es exhaustiva,
+// es un filtro básico para evitar groserías obvias.
+const PALABRAS_PROHIBIDAS = [
+    'mierda', 'puta', 'puto', 'gonorrea', 'malparido', 'malparida', 'hijueputa',
+    'marica', 'pendejo', 'pendeja', 'imbecil', 'idiota', 'estupido', 'estupida', 'perra'
+];
+
+function contieneOfensivas(texto) {
+    const limpio = normalizar(texto);
+    return PALABRAS_PROHIBIDAS.some(palabra => limpio.includes(palabra));
+}
+
+// Distancia de edición simple, para tolerar errores de tipeo en encabezados de Excel.
+function distancia(a, b) {
+    a = normalizar(a); b = normalizar(b);
+    const m = a.length, n = b.length;
+    const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+    for (let i = 0; i <= m; i++) dp[i][0] = i;
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+    for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+            if (a[i - 1] === b[j - 1]) dp[i][j] = dp[i - 1][j - 1];
+            else dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+        }
+    }
+    return dp[m][n];
+}
+
+// Encabezados válidos por campo, para tolerar errores de tipeo ("nombe" -> "nombre").
+const CAMPOS_EXCEL = {
+    nombre: ['nombre', 'producto', 'nombre producto'],
+    tipo_cafe: ['tipo_cafe', 'categoria', 'tipo de cafe', 'categoria producto'],
+    presentacion: ['presentacion', 'presentación'],
+    precio: ['precio', 'precio kg', 'precio/kg'],
+    stock: ['stock', 'cantidad', 'stock kg'],
+    codigo_lote: ['codigo_lote', 'lote', 'codigo lote'],
+    imagen_url: ['imagen_url', 'imagen', 'foto'],
+};
+
+function valorPorCampo(fila, campo) {
+    const clavesFila = Object.keys(fila);
+    for (const clave of clavesFila) {
+        const claveNorm = normalizar(clave);
+        for (const candidato of CAMPOS_EXCEL[campo]) {
+            if (claveNorm === normalizar(candidato) || distancia(claveNorm, normalizar(candidato)) <= 2) {
+                return fila[clave];
+            }
+        }
+    }
+    return undefined;
+}
+
 async function obtenerProductosCalculados() {
     const result = await pool.query(`
     SELECT pr.id_producto, pr.nombre, pr.tipo_cafe, pr.precio, pr.stock, pr.imagen_url,
@@ -148,6 +200,64 @@ const getLotes = async (req, res) => {
     }
 };
 
+// Categorías de café que ya existen en la BD, para el desplegable.
+const getCategorias = async (req, res) => {
+    try {
+        const result = await pool.query(`
+      SELECT DISTINCT tipo_cafe FROM productos
+      WHERE tipo_cafe IS NOT NULL AND tipo_cafe != '' AND categoria_producto = 'cafe'
+      ORDER BY tipo_cafe
+    `);
+        res.json({ ok: true, categorias: result.rows.map(r => r.tipo_cafe) });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ ok: false, error: error.message });
+    }
+};
+
+// Marcas de máquinas que ya existen en la BD, para autocompletar.
+const getMarcas = async (req, res) => {
+    try {
+        const result = await pool.query(`
+      SELECT DISTINCT marca FROM productos
+      WHERE marca IS NOT NULL AND marca != '' AND categoria_producto = 'maquina'
+      ORDER BY marca
+    `);
+        res.json({ ok: true, marcas: result.rows.map(r => r.marca) });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ ok: false, error: error.message });
+    }
+};
+
+// Sugerencias de precio (y garantía para máquinas) basadas en productos
+// similares que ya existen en tu propia base de datos. No consulta fuentes
+// externas: no hay integración con Google ni ningún buscador de precios real.
+const getSugerencias = async (req, res) => {
+    try {
+        const { categoria_producto = 'cafe', marca = '', tipo_cafe = '' } = req.query;
+
+        let filas;
+        if (categoria_producto === 'maquina') {
+            const todos = await pool.query(`SELECT precio, garantia_meses, marca FROM productos WHERE categoria_producto = 'maquina'`);
+            filas = todos.rows.filter(r => normalizar(r.marca) === normalizar(marca));
+        } else {
+            const todos = await pool.query(`SELECT precio, tipo_cafe FROM productos WHERE categoria_producto = 'cafe'`);
+            filas = todos.rows.filter(r => normalizar(r.tipo_cafe) === normalizar(tipo_cafe));
+        }
+
+        const precios = [...new Set(filas.map(r => Number(r.precio)))].slice(0, 5);
+        const garantias = categoria_producto === 'maquina'
+            ? [...new Set(filas.map(r => r.garantia_meses).filter(g => g != null))].slice(0, 5)
+            : [];
+
+        res.json({ ok: true, precios, garantias });
+    } catch (error) {
+        console.error(error);
+        res.json({ ok: true, precios: [], garantias: [] }); // no bloquea el formulario si falla
+    }
+};
+
 const getProductoPorId = async (req, res) => {
     try {
         const { id } = req.params;
@@ -201,15 +311,17 @@ const getProductoPorId = async (req, res) => {
 };
 
 function validarProducto(body) {
-    const { nombre, precio, stock, categoria_producto } = body;
+    const { nombre, precio, stock, categoria_producto, descripcion, modelo } = body;
     if (!nombre || precio === '' || precio == null || stock === '' || stock == null) {
         return 'Faltan campos obligatorios.';
     }
     if (isNaN(precio) || Number(precio) < 0) return 'El precio debe ser un número válido.';
     if (isNaN(stock) || Number(stock) < 0) return 'El stock debe ser un número válido.';
+    if (descripcion && contieneOfensivas(descripcion)) return 'La descripción contiene palabras no permitidas.';
 
     if (categoria_producto === 'maquina') {
-        if (!body.marca || !body.modelo) return 'Para máquinas, marca y modelo son obligatorios.';
+        if (!body.marca || !modelo) return 'Para máquinas, marca y número de identificación son obligatorios.';
+        if (String(modelo).length > 20) return 'El número de identificación no puede tener más de 20 caracteres.';
     } else {
         if (!body.id_lote || !body.tipo_cafe || !body.presentacion) {
             return 'Para café, lote, categoría y presentación son obligatorios.';
@@ -317,9 +429,8 @@ const actualizarProducto = async (req, res) => {
     }
 };
 
-// Importación masiva: recibe un arreglo ya parseado en el frontend (desde el Excel)
-// con filas de café. Cada fila necesita: nombre, codigo_lote (o id_lote), tipo_cafe,
-// presentacion, precio, stock. Filas de máquinas no se soportan por Excel por ahora.
+// Importación masiva de café desde Excel. Tolera encabezados con errores de
+// tipeo (ej. "Nombe" en vez de "Nombre") usando distancia de edición.
 const importarProductos = async (req, res) => {
     const { productos } = req.body;
 
@@ -329,7 +440,7 @@ const importarProductos = async (req, res) => {
 
     const lotesResult = await pool.query(`SELECT id_lote, codigo_lote FROM lotes`);
     const loteIdPorCodigo = {};
-    lotesResult.rows.forEach(l => { loteIdPorCodigo[String(l.codigo_lote).trim().toLowerCase()] = l.id_lote; });
+    lotesResult.rows.forEach(l => { loteIdPorCodigo[normalizar(l.codigo_lote)] = l.id_lote; });
 
     const creados = [];
     const errores = [];
@@ -339,25 +450,30 @@ const importarProductos = async (req, res) => {
         const numeroFila = i + 2; // +2 porque la fila 1 del Excel es el encabezado
 
         try {
-            const nombre = String(fila.nombre || fila.Nombre || '').trim();
-            const tipo_cafe = String(fila.tipo_cafe || fila.categoria || fila.Categoria || '').trim();
-            const presentacion = String(fila.presentacion || fila.Presentacion || '').trim();
-            const precio = Number(fila.precio || fila.Precio);
-            const stock = Number(fila.stock || fila.Stock);
-            const codigoLote = String(fila.codigo_lote || fila.lote || fila.Lote || '').trim().toLowerCase();
-            const imagen_url = fila.imagen_url || fila.imagen || null;
+            const nombre = String(valorPorCampo(fila, 'nombre') || '').trim();
+            const tipo_cafe = String(valorPorCampo(fila, 'tipo_cafe') || '').trim();
+            const presentacion = String(valorPorCampo(fila, 'presentacion') || '').trim();
+            const precio = Number(valorPorCampo(fila, 'precio'));
+            const stock = Number(valorPorCampo(fila, 'stock'));
+            const codigoLoteCrudo = valorPorCampo(fila, 'codigo_lote');
+            const codigoLote = normalizar(codigoLoteCrudo);
+            const imagen_url = valorPorCampo(fila, 'imagen_url') || null;
 
-            if (!nombre || !tipo_cafe || !presentacion || !codigoLote) {
-                errores.push({ fila: numeroFila, error: 'Faltan datos obligatorios (nombre, categoría, presentación o lote).' });
+            if (!nombre || !tipo_cafe || !presentacion || !codigoLoteCrudo) {
+                errores.push({ fila: numeroFila, error: 'Faltan datos obligatorios (nombre, categoría, presentación o lote). Revisa que el archivo sea compatible.' });
                 continue;
             }
             if (isNaN(precio) || precio < 0 || isNaN(stock) || stock < 0) {
                 errores.push({ fila: numeroFila, error: 'Precio o stock inválido.' });
                 continue;
             }
+            if (contieneOfensivas(nombre)) {
+                errores.push({ fila: numeroFila, error: 'El nombre contiene palabras no permitidas.' });
+                continue;
+            }
             const id_lote = loteIdPorCodigo[codigoLote];
             if (!id_lote) {
-                errores.push({ fila: numeroFila, error: `El lote "${fila.codigo_lote || fila.lote}" no existe.` });
+                errores.push({ fila: numeroFila, error: `El lote "${codigoLoteCrudo}" no existe.` });
                 continue;
             }
 
@@ -369,14 +485,14 @@ const importarProductos = async (req, res) => {
 
             creados.push({ fila: numeroFila, id: result.rows[0].id_producto, nombre });
         } catch (err) {
-            errores.push({ fila: numeroFila, error: err.message });
+            errores.push({ fila: numeroFila, error: 'No se pudo importar esta fila: ' + err.message });
         }
     }
 
     res.json({ ok: true, creados: creados.length, errores });
 };
 
-// Fija el stock a un valor exacto (no suma, reemplaza el total actual).
+// Fija el stock al valor exacto que escribe el admin (sin tope de capacidad).
 const restablecerProducto = async (req, res) => {
     try {
         const { id } = req.params;
@@ -399,13 +515,7 @@ const restablecerProducto = async (req, res) => {
 
         const stockActual = Number(actual.rows[0].stock);
         const capacidad = Number(actual.rows[0].capacidad) || 0;
-
-        let nuevoStock = Number(cantidad);
-        let tope = false;
-        if (capacidad > 0 && nuevoStock > capacidad) {
-            nuevoStock = capacidad;
-            tope = true;
-        }
+        const nuevoStock = Number(cantidad);
 
         const estadoAnterior = calcularEstado(stockActual, capacidad);
         const estadoNuevo = calcularEstado(nuevoStock, capacidad);
@@ -419,7 +529,7 @@ const restablecerProducto = async (req, res) => {
             registrarResuelta();
         }
 
-        res.json({ ok: true, producto: result.rows[0], tope });
+        res.json({ ok: true, producto: result.rows[0] });
     } catch (error) {
         console.error(error);
         res.status(500).json({ ok: false, error: error.message });
@@ -427,6 +537,6 @@ const restablecerProducto = async (req, res) => {
 };
 
 export {
-    getResumen, getProductos, getProductoPorId, getLotes,
+    getResumen, getProductos, getProductoPorId, getLotes, getCategorias, getMarcas, getSugerencias,
     crearProducto, actualizarProducto, importarProductos, restablecerProducto
 };
