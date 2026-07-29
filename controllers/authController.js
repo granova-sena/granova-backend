@@ -126,14 +126,14 @@ export async function login(req, res) {
         )
 
         if (resultado.rows.length === 0) {
-            return res.status(401).json({ error: "Usuario no encontrado en el Grand Line 🗺️" })
+            return res.status(401).json({ error: "Usuario no encontrado " })
         }
 
         const cliente = resultado.rows[0]
         const contraseñaValida = await bcrypt.compare(contraseña, cliente.contraseña)
 
         if (!contraseñaValida) {
-            return res.status(401).json({ error: "Contraseña incorrecta, no eres tú, impostor 🎭" })
+            return res.status(401).json({ error: "Contraseña incorrecta" })
         }
 
         if (!cliente.verificado) {
