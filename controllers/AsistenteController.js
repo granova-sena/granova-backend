@@ -1,4 +1,7 @@
-const N8N_WEBHOOK_URL = "http://localhost:5678/webhook/granova-chat"
+// En desarrollo local usa tu n8n local (localhost:5678). En producción,
+// configura N8N_WEBHOOK_URL en las variables de entorno de Railway apuntando
+// a la URL pública de tu n8n desplegado (ver README para el paso a paso).
+const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || "http://localhost:5678/webhook/granova-chat"
 
 export async function chatConAsistente(req, res) {
     try {
