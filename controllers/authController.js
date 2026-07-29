@@ -133,7 +133,7 @@ export async function login(req, res) {
         const contraseñaValida = await bcrypt.compare(contraseña, cliente.contraseña)
 
         if (!contraseñaValida) {
-            return res.status(401).json({ error: "Contraseña incorrecta, no eres tú, impostor 🎭" })
+            return res.status(401).json({ error: "Contraseña incorrecta" })
         }
 
         if (!cliente.verificado) {
