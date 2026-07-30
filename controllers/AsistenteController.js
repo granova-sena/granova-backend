@@ -1,7 +1,4 @@
-// En desarrollo local usa tu n8n local (localhost:5678). En producción,
-// configura N8N_WEBHOOK_URL en las variables de entorno de Railway apuntando
-// a la URL pública de tu n8n desplegado (ver README para el paso a paso).
-const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || "http://localhost:5678/webhook/granova-chat"
+const N8N_WEBHOOK_URL = "https://n8n-production-aacb.up.railway.app/webhook/granova-chat"
 
 export async function chatConAsistente(req, res) {
     try {
@@ -15,21 +12,39 @@ export async function chatConAsistente(req, res) {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ mensaje, idAdmin }),
+            signal: AbortSignal.timeout(20000), // corta si n8n no responde en 20s
         })
 
         const textoRespuesta = await respuestaN8n.text()
-        console.log("Respuesta cruda de n8n:", textoRespuesta)
 
         if (!respuestaN8n.ok) {
-            return res.status(502).json({ error: "El asistente no respondió correctamente" })
+            console.error("n8n respondió con error:", respuestaN8n.status, textoRespuesta)
+            return res.status(502).json({
+                respuesta: "El asistente tuvo un problema al procesar tu consulta. Intenta de nuevo en un momento.",
+                accion: null,
+                parametros: {},
+            })
         }
 
         const data = textoRespuesta ? JSON.parse(textoRespuesta) : {}
-
         res.json(data)
 
     } catch (error) {
-        console.error("Error en chatConAsistente:", error)
-        res.status(500).json({ error: "Error al conectar con el asistente" })
+        console.error("Error en chatConAsistente:", error.name, error.message)
+
+        // Distinguimos el tipo de fallo para dar un mensaje más útil
+        let mensajeError = "No pude conectarme con el asistente. Intenta de nuevo en un momento."
+
+        if (error.name === "TimeoutError") {
+            mensajeError = "El asistente está tardando más de lo normal en responder. Intenta de nuevo."
+        } else if (error.cause?.code === "ECONNREFUSED") {
+            mensajeError = "El asistente no está disponible en este momento."
+        }
+
+        res.status(500).json({
+            respuesta: mensajeError,
+            accion: null,
+            parametros: {},
+        })
     }
 }
