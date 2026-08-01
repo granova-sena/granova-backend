@@ -88,3 +88,70 @@ export const obtenerReportesVentas = async (req, res) => {
     res.status(500).json({ ok: false, mensaje: "Error al obtener reportes" })
   }
 }
+
+// ─────────────────────────────────────────
+// GET /api/reportes/clientes
+// ─────────────────────────────────────────
+export const obtenerAnalisisClientes = async (req, res) => {
+  try {
+    // Total clientes activos
+    const clientesActivos = await pool.query(`
+      SELECT COUNT(DISTINCT id_cliente) as total
+      FROM pedidos
+      WHERE fecha_pedido >= NOW() - INTERVAL '30 days'
+      AND estado != 'cancelado'
+    `)
+
+    // Clientes nuevos este mes
+    const clientesNuevos = await pool.query(`
+      SELECT COUNT(*) as total
+      FROM clientes
+      WHERE fecha_registro >= NOW() - INTERVAL '30 days'
+    `)
+
+    // Frecuencia promedio de compra
+    const frecuencia = await pool.query(`
+      SELECT ROUND(AVG(total_pedidos), 1) as frecuencia
+      FROM (
+        SELECT id_cliente, COUNT(*) as total_pedidos
+        FROM pedidos
+        WHERE fecha_pedido >= NOW() - INTERVAL '30 days'
+        AND estado != 'cancelado'
+        GROUP BY id_cliente
+      ) sub
+    `)
+
+    // Top clientes
+    const topClientes = await pool.query(`
+      SELECT 
+        c.id_cliente,
+        c.nombre,
+        c.apellido,
+        c.email,
+        COUNT(p.id_pedido) as total_compras,
+        COALESCE(SUM(p.total), 0) as total_gastado
+      FROM clientes c
+      LEFT JOIN pedidos p ON c.id_cliente = p.id_cliente
+      AND p.estado != 'cancelado'
+      GROUP BY c.id_cliente, c.nombre, c.apellido, c.email
+      ORDER BY total_gastado DESC
+      LIMIT 5
+    `)
+
+    res.status(200).json({
+      ok: true,
+      data: {
+        stats: {
+          clientes_activos: Number(clientesActivos.rows[0].total),
+          clientes_nuevos: Number(clientesNuevos.rows[0].total),
+          frecuencia_promedio: Number(frecuencia.rows[0].frecuencia) || 0,
+        },
+        top_clientes: topClientes.rows
+      }
+    })
+
+  } catch (error) {
+    console.error("Error obteniendo análisis de clientes:", error.message)
+    res.status(500).json({ ok: false, mensaje: "Error al obtener análisis de clientes" })
+  }
+}
