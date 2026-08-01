@@ -1,5 +1,8 @@
 const N8N_WEBHOOK_URL = "https://n8n-production-aacb.up.railway.app/webhook/granova-chat"
 
+
+
+
 export async function chatConAsistente(req, res) {
     try {
         const { mensaje, idAdmin } = req.body

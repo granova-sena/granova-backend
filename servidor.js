@@ -12,6 +12,7 @@ import usuariosRoutes  from "./routes/usuariosRoutes.js"
 import asistenteRoutes from "./routes/asistenteRoutes.js"
 import fincasRoutes    from "./routes/fincasRoutes.js"
 
+
 // Rutas tuyas
 import productosRoutes from "./routes/productosRoutes.js"
 import pedidosRoutes   from "./routes/pedidosRoutes.js"
@@ -25,6 +26,7 @@ import ventasRoutes       from "./routes/admin/ventasRoutes.js"
 import alertasAdminRoutes from "./routes/admin/alertasRoutes.js"
 import pedidosAdminRoutes from "./routes/admin/pedidosRoutes.js"
 import usuariosAdminRoutes from "./routes/admin/usuariosRoutes.js"
+import reportesRoutes from "./routes/admin/reportes.js"
 
 const app    = express()
 const puerto = process.env.PORT || 3000
@@ -54,6 +56,8 @@ app.use("/api/ventas",     ventasRoutes)
 app.use("/api/alertas",    alertasAdminRoutes)
 app.use("/api/pedidos",    pedidosAdminRoutes)
 app.use("/api/usuarios",   usuariosAdminRoutes)
+app.use("/api/reportes",   reportesRoutes)
+
 
 app.get("/", (req, res) => {
   res.json({ mensaje: "Backend de Granova activo" })
