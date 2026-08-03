@@ -155,32 +155,3 @@ export const obtenerAnalisisClientes = async (req, res) => {
     res.status(500).json({ ok: false, mensaje: "Error al obtener análisis de clientes" })
   }
 }
-
-// ─────────────────────────────────────────
-// GET /api/reportes/ventas-por-region
-// ─────────────────────────────────────────
-export const obtenerVentasPorRegion = async (req, res) => {
-  try {
-      const resultado = await pool.query(`
-        SELECT 
-          TRIM(INITCAP(LOWER(ciudad_envio))) as ciudad_envio,
-          COUNT(*) as total_pedidos,
-          COALESCE(SUM(total), 0) as total_ventas
-        FROM pedidos
-        WHERE estado != 'cancelado'
-        AND ciudad_envio IS NOT NULL
-        AND ciudad_envio != ''
-        GROUP BY TRIM(INITCAP(LOWER(ciudad_envio)))
-        ORDER BY total_ventas DESC
-      `)
-
-    res.status(200).json({
-      ok: true,
-      data: resultado.rows
-    })
-
-  } catch (error) {
-    console.error("Error obteniendo ventas por región:", error.message)
-    res.status(500).json({ ok: false, mensaje: "Error al obtener ventas por región" })
-  }
-}
