@@ -11,7 +11,7 @@ import authRoutes      from "./routes/authRoutes.js"
 import usuariosRoutes  from "./routes/usuariosRoutes.js"
 import asistenteRoutes from "./routes/asistenteRoutes.js"
 import fincasRoutes    from "./routes/fincasRoutes.js"
-
+import preferenciasRoutes from "./routes/preferenciasRoutes.js"
 
 // Rutas tuyas
 import productosRoutes from "./routes/productosRoutes.js"
@@ -42,6 +42,8 @@ app.use("/asistente", asistenteRoutes)
 app.use("/fincas",    fincasRoutes)
 app.use("/productos", productosRoutes)
 app.use("/pedidos",   pedidosRoutes)
+app.use("/api/preferencias", preferenciasRoutes)
+
 
 // Rutas tuyas con prefijo /api
 app.use("/api/productos", productosRoutes)
