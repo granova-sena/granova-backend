@@ -3,7 +3,7 @@
   "name": "granova-backend",
   "version": "1.0.0",
   "description": "",
-  "main": "servidor.js",
+  "main": "server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -22,7 +22,6 @@
     "nodemailer": "^9.0.1",
     "pdfkit": "^0.19.1",
     "pg": "^8.22.0",
-    "react-simple-maps": "^3.0.0",
     "xlsx": "^0.18.5"
   }
 }
