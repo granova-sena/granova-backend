@@ -12,6 +12,8 @@ import usuariosRoutes  from "./routes/usuariosRoutes.js"
 import asistenteRoutes from "./routes/asistenteRoutes.js"
 import fincasRoutes    from "./routes/fincasRoutes.js"
 import preferenciasRoutes from "./routes/preferenciasRoutes.js"
+import lotesRoutes from "./routes/lotesRoutes.js"
+import resenasRoutes from "./routes/resenasRoutes.js"
 
 // Rutas tuyas
 import productosRoutes from "./routes/productosRoutes.js"
@@ -42,14 +44,15 @@ app.use("/asistente", asistenteRoutes)
 app.use("/fincas",    fincasRoutes)
 app.use("/productos", productosRoutes)
 app.use("/pedidos",   pedidosRoutes)
-app.use("/api/preferencias", preferenciasRoutes)
-
+app.use("/lotes", lotesRoutes)
+app.use("/resenas", resenasRoutes)
 
 // Rutas tuyas con prefijo /api
 app.use("/api/productos", productosRoutes)
 app.use("/api/pedidos",   pedidosRoutes)
 app.use("/api/facturas",  facturasRoutes)
 app.use("/api/correo",    correoRoutes)
+app.use("/api/preferencias", preferenciasRoutes)
 
 // Rutas admin
 app.use("/api/dashboard", dashboardRoutes)
@@ -59,6 +62,7 @@ app.use("/api/alertas",    alertasAdminRoutes)
 app.use("/api/pedidos",    pedidosAdminRoutes)
 app.use("/api/usuarios",   usuariosAdminRoutes)
 app.use("/api/reportes",   reportesRoutes)
+
 
 
 app.get("/", (req, res) => {

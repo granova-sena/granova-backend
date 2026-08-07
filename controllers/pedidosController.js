@@ -159,16 +159,17 @@ export const obtenerPedido = async (req, res) => {
       });
     }
 
-    const detalle = await pool.query(
-      `SELECT 
-         dp.*,
-         pr.nombre AS producto_nombre,
-         pr.presentacion
-       FROM detalle_pedidos dp
-       JOIN productos pr ON dp.id_producto = pr.id_producto
-       WHERE dp.id_pedido = $1`,
-      [id]
-    );
+      const detalle = await pool.query(
+        `SELECT 
+          dp.*,
+          pr.nombre AS producto_nombre,
+          pr.presentacion,
+          pr.id_lote
+        FROM detalle_pedidos dp
+        JOIN productos pr ON dp.id_producto = pr.id_producto
+        WHERE dp.id_pedido = $1`,
+        [id]
+      );
 
     res.status(200).json({
       ok: true,

@@ -1,0 +1,8 @@
+import { Router } from "express";
+import { crearResena, obtenerResenasProducto } from "../controllers/resenasController.js";
+
+const router = Router();
+router.post("/", crearResena);
+router.get("/producto/:id_producto", obtenerResenasProducto);
+
+export default router;
