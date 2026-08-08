@@ -7,7 +7,7 @@ import PDFDocument from "pdfkit";
 export const obtenerTrazabilidadLote = async (req, res) => {
   const { id } = req.params;
 
-  if (isNaN(id)) {
+  if (Number.isNaN(Number(id))) {
     return res.status(400).json({ ok: false, mensaje: "El id del lote debe ser un número" });
   }
 

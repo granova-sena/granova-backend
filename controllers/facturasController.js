@@ -113,7 +113,7 @@ export const obtenerFactura = async (req,res) =>{
 
     const id_pedido = req.params.id_pedido;
 
-    if (isNaN(id_pedido)){
+    if (Number.isNaN(Number(id_pedido))) {
         return res.status(400).json({
             ok:     false,
             mensaje:"El id debe ser un numero valido",
