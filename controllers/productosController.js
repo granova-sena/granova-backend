@@ -70,7 +70,7 @@ export const compararProductos = async (req, res) => {
     return res.status(400).json({ ok: false, mensaje: "Debes enviar al menos 2 ids para comparar" });
   }
 
-  const idsArray = ids.split(',').map(Number).filter(n => !isNaN(n));
+  const idsArray = ids.split(',').map(Number).filter(n => !Number.isNaN(n));
 
   if (idsArray.length < 2 || idsArray.length > 3) {
     return res.status(400).json({ ok: false, mensaje: "Puedes comparar entre 2 y 3 productos" });
