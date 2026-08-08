@@ -315,8 +315,8 @@ function validarProducto(body) {
     if (!nombre || precio === '' || precio == null || stock === '' || stock == null) {
         return 'Faltan campos obligatorios.';
     }
-    if (isNaN(precio) || Number(precio) < 0) return 'El precio debe ser un número válido.';
-    if (isNaN(stock) || Number(stock) < 0) return 'El stock debe ser un número válido.';
+    if (Number.isNaN(Number(precio)) || Number(precio) < 0) return 'El precio debe ser un número válido.';
+    if (Number.isNaN(Number(stock)) || Number(stock) < 0) return 'El stock debe ser un número válido.';
     if (descripcion && contieneOfensivas(descripcion)) return 'La descripción contiene palabras no permitidas.';
 
     if (categoria_producto === 'maquina') {
@@ -463,7 +463,7 @@ const importarProductos = async (req, res) => {
                 errores.push({ fila: numeroFila, error: 'Faltan datos obligatorios (nombre, categoría, presentación o lote). Revisa que el archivo sea compatible.' });
                 continue;
             }
-            if (isNaN(precio) || precio < 0 || isNaN(stock) || stock < 0) {
+            if (Number.isNaN(precio) || precio < 0 || Number.isNaN(stock) || stock < 0) {
                 errores.push({ fila: numeroFila, error: 'Precio o stock inválido.' });
                 continue;
             }
@@ -498,7 +498,7 @@ const restablecerProducto = async (req, res) => {
         const { id } = req.params;
         const { cantidad } = req.body;
 
-        if (cantidad === undefined || cantidad === null || isNaN(cantidad) || Number(cantidad) < 0) {
+        if (cantidad === undefined || cantidad === null || Number.isNaN(Number(cantidad)) || Number(cantidad) < 0) {
             return res.status(400).json({ ok: false, error: 'Ingresa una cantidad válida (0 o más).' });
         }
 
