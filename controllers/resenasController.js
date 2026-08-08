@@ -61,7 +61,7 @@ export const crearResena = async (req, res) => {
 export const obtenerResenasProducto = async (req, res) => {
   const { id_producto } = req.params;
 
-  if (isNaN(id_producto)) {
+  if (Number.isNaN(Number(id_producto))) {
     return res.status(400).json({ ok: false, mensaje: "El id del producto debe ser un número" });
   }
 

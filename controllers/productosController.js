@@ -39,7 +39,7 @@ export const obtenerProducto = async (req, res) => {
   try {
     const { id } = req.params
 
-    if (!id || isNaN(id) || Number(id) <= 0) {
+    if (!id || Number.isNaN(Number(id)) || Number(id) <= 0) {
       return res.status(400).json({ error: "El id del producto no es válido" })
     }
 

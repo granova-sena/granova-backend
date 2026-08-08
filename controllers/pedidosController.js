@@ -132,7 +132,7 @@ export const obtenerPedido = async (req, res) => {
   const { id } = req.params;
 
   // Validar que el id sea un número
-  if (isNaN(id)) {
+  if (Number.isNaN(Number(id))) {
     return res.status(400).json({
       ok: false,
       mensaje: "El id del pedido debe ser un número"
@@ -191,7 +191,7 @@ export const obtenerPedido = async (req, res) => {
 export const obtenerPedidosCliente = async (req, res) => {
   const { id_cliente } = req.params
 
-  if (isNaN(id_cliente)) {
+  if (Number.isNaN(Number(id_cliente))) {
     return res.status(400).json({
       ok: false,
       mensaje: "El id del cliente debe ser un número"
