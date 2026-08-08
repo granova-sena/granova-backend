@@ -33,9 +33,18 @@ import reportesRoutes from "./routes/admin/reportes.js"
 const app = express()
 const puerto = process.env.PORT || 3000
 
+const origenesPermitidos = [
+  'http://localhost:5173',
+  'https://granova-frontend.vercel.app'
+];
+
+app.use(cors({
+  origin: origenesPermitidos,
+  credentials: true
+}));
+
 app.disable('x-powered-by')
 app.set("trust proxy", 1)
-app.use(cors())
 app.use(express.json())
 
 // Rutas cliente
