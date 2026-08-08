@@ -83,10 +83,12 @@ async function obtenerProductosCalculados() {
         const capacidad = Number(p.capacidad) || 0;
         const stock = Number(p.stock);
         const esMaquina = p.categoria_producto === 'maquina';
-        const pct = capacidad > 0
-            ? Math.min(Math.round((stock / capacidad) * 100), 100)
-            : (stock > 0 ? 100 : 0);
-
+        let pct;
+if (capacidad > 0) {
+    pct = Math.min(Math.round((stock / capacidad) * 100), 100);
+} else {
+    pct = stock > 0 ? 100 : 0;
+}
         return {
             id: p.id_producto,
             nombre: p.nombre,
@@ -129,7 +131,12 @@ const getResumen = async (req, res) => {
 
         const hoy = Number(ventasHoy.rows[0].total);
         const ayer = Number(ventasAyer.rows[0].total);
-        const cambioVentas = ayer === 0 ? (hoy > 0 ? 100 : 0) : Math.round(((hoy - ayer) / ayer) * 100);
+        let cambioVentas;
+        if (ayer === 0) {
+            cambioVentas = hoy > 0 ? 100 : 0;
+        } else {
+            cambioVentas = Math.round(((hoy - ayer) / ayer) * 100);
+        }
 
         res.json({
             ok: true,
@@ -278,9 +285,12 @@ const getProductoPorId = async (req, res) => {
         const producto = result.rows[0];
         const capacidad = Number(producto.capacidad) || 0;
         const stock = Number(producto.stock);
-        const pct = capacidad > 0
-            ? Math.min(Math.round((stock / capacidad) * 100), 100)
-            : (stock > 0 ? 100 : 0);
+        let pct;
+        if (capacidad > 0) {
+            pct = Math.min(Math.round((stock / capacidad) * 100), 100);
+        } else {
+            pct = stock > 0 ? 100 : 0;
+        }
 
         res.json({
             ok: true,
