@@ -3,7 +3,7 @@ import bcrypt from "bcrypt"
 import jwt from "jsonwebtoken"
 import { OAuth2Client } from "google-auth-library"
 import pool from "../config/db.js"
-import crypto from "crypto"
+import crypto from "node:crypto"
 import transportador from "../config/email.js"
 
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || "http://localhost:3000/auth/google/callback"
