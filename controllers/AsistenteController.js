@@ -12,12 +12,7 @@ export async function chatConAsistente(req, res) {
             return res.status(400).json({ error: "El mensaje es obligatorio" })
         }
 
-        const respuestaN8n = await fetch(N8N_WEBHOOK_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ mensaje, idAdmin }),
-            signal: AbortSignal.timeout(20000), // corta si n8n no responde en 20s
-        })
+        
 
         const textoRespuesta = await respuestaN8n.text()
 

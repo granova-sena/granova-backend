@@ -9,6 +9,7 @@ router.get("/resumen", getResumen)
 router.get("/listado", getPedidos)
 router.get("/:id", getPedidoDetalle)
 router.patch("/:id/aceptar", aceptarPedido)
-router.patch("/:id/cancelar", cancelarPedido)
+router.patch("/:id/rechazar", cancelarPedido)
+router.patch("/:id/cancelar", cancelarPedido) // alias viejo, por compatibilidad
 
 export default router

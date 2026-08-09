@@ -14,7 +14,9 @@ function normalizar(texto) {
     return String(texto || '')
         .toLowerCase()
         .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '');
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
 }
 
 // Lista corta de palabras a bloquear en la descripción. No es exhaustiva,
@@ -311,7 +313,7 @@ const getProductoPorId = async (req, res) => {
 };
 
 function validarProducto(body) {
-    const { nombre, precio, stock, categoria_producto, descripcion, modelo } = body;
+    const { nombre, precio, stock, categoria_producto, descripcion, modelo, garantia_meses } = body;
     if (!nombre || precio === '' || precio == null || stock === '' || stock == null) {
         return 'Faltan campos obligatorios.';
     }
@@ -322,6 +324,9 @@ function validarProducto(body) {
     if (categoria_producto === 'maquina') {
         if (!body.marca || !modelo) return 'Para máquinas, marca y número de identificación son obligatorios.';
         if (String(modelo).length > 20) return 'El número de identificación no puede tener más de 20 caracteres.';
+        if (garantia_meses !== undefined && garantia_meses !== null && garantia_meses !== '') {
+            if (isNaN(garantia_meses) || Number(garantia_meses) < 0) return 'La garantía debe ser un número de meses válido (0 o más).';
+        }
     } else {
         if (!body.id_lote || !body.tipo_cafe || !body.presentacion) {
             return 'Para café, lote, categoría y presentación son obligatorios.';
@@ -336,6 +341,14 @@ const crearProducto = async (req, res) => {
 
         const errorValidacion = validarProducto(req.body);
         if (errorValidacion) return res.status(400).json({ ok: false, error: errorValidacion });
+
+        const yaExiste = await pool.query(
+            `SELECT id_producto FROM productos WHERE lower(nombre) = lower($1)`,
+            [nombre]
+        );
+        if (yaExiste.rows.length > 0) {
+            return res.status(400).json({ ok: false, error: 'Este nombre ya está siendo usado por otro producto.' });
+        }
 
         const esMaquina = categoria_producto === 'maquina';
 

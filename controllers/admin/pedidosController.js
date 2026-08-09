@@ -1,34 +1,45 @@
 import pool from "../../config/db.js"
 
+function normalizar(texto) {
+  return String(texto || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function formatearPedido(id) {
   return `#P-${String(id).padStart(5, '0')}`;
 }
 
 // Normaliza estados históricos: los pedidos creados desde Registro de ventas
-// pueden venir como 'Pendiente' o 'Pagado'. Para Gestión de pedidos, 'Pagado'
-// se trata igual que 'Confirmado' (ya fue aceptado y cobrado).
-function bucketEstado(estado) {
-  if (estado === 'Cancelado') return 'Cancelado';
-  if (estado === 'Pendiente') return 'Pendiente';
-  return 'Confirmado'; // 'Confirmado' o 'Pagado'
+// pueden venir como 'Pendiente' o 'Pagado'. 'Cancelado' (nombre viejo) y
+// 'Rechazado' (nombre nuevo) se tratan igual, para no perder pedidos
+// rechazados antes de este cambio. Todo insensible a mayúsculas/espacios.
+function bucketEstado(estadoCrudo) {
+  const estado = normalizar(estadoCrudo);
+  if (estado === 'cancelado' || estado === 'rechazado') return 'Rechazado';
+  if (estado === 'pendiente') return 'Pendiente';
+  return 'Confirmado'; // 'confirmado' o 'pagado'
 }
 
 const getResumen = async (req, res) => {
   try {
     const result = await pool.query(`SELECT estado, total FROM pedidos`);
 
-    let pendientes = 0, confirmados = 0, cancelados = 0, totalEnPedidos = 0;
+    let pendientes = 0, confirmados = 0, rechazados = 0, totalEnPedidos = 0;
     result.rows.forEach(p => {
       const bucket = bucketEstado(p.estado);
       if (bucket === 'Pendiente') pendientes++;
       if (bucket === 'Confirmado') confirmados++;
-      if (bucket === 'Cancelado') cancelados++;
-      if (bucket !== 'Cancelado') totalEnPedidos += Number(p.total);
+      if (bucket === 'Rechazado') rechazados++;
+      if (bucket !== 'Rechazado') totalEnPedidos += Number(p.total);
     });
 
     const totalMesAnterior = await pool.query(`
       SELECT COALESCE(SUM(total), 0) AS total FROM pedidos
-      WHERE estado != 'Cancelado'
+      WHERE lower(estado) NOT IN ('cancelado', 'rechazado')
         AND date_trunc('month', fecha_pedido) = date_trunc('month', CURRENT_DATE - INTERVAL '1 month')
     `);
     const anterior = Number(totalMesAnterior.rows[0].total);
@@ -38,14 +49,15 @@ const getResumen = async (req, res) => {
       ok: true,
       pendientes,
       confirmados,
-      cancelados,
+      rechazados,
+      cancelados: rechazados, // alias por compatibilidad con el frontend viejo
       total: result.rows.length,
       totalEnPedidos,
       cambioTotal: cambio
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ ok: false, error: error.message });
+    console.error('Error en getResumen (pedidos):', error);
+    res.status(500).json({ ok: false, error: 'No se pudo cargar el resumen de pedidos.' });
   }
 };
 
@@ -90,16 +102,16 @@ const getPedidos = async (req, res) => {
     }));
 
     if (tab !== 'Todos') {
-      const tabAEstado = { Pendientes: 'Pendiente', Confirmados: 'Confirmado', Cancelados: 'Cancelado' };
+      const tabAEstado = { Pendientes: 'Pendiente', Confirmados: 'Confirmado', Rechazados: 'Rechazado' };
       pedidos = pedidos.filter(p => p.estado === tabAEstado[tab]);
     }
 
     if (search) {
-      const q = search.toLowerCase();
+      const q = normalizar(search);
       pedidos = pedidos.filter(p =>
-        p.cliente.toLowerCase().includes(q) ||
-        p.producto.toLowerCase().includes(q) ||
-        p.pedido.toLowerCase().includes(q)
+        normalizar(p.cliente).includes(q) ||
+        normalizar(p.producto).includes(q) ||
+        normalizar(p.pedido).includes(q)
       );
     }
 
@@ -115,8 +127,8 @@ const getPedidos = async (req, res) => {
       totalPaginas: Math.max(Math.ceil(totalFiltrados / Number(limit)), 1)
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ ok: false, error: error.message });
+    console.error('Error en getPedidos:', error);
+    res.status(500).json({ ok: false, error: 'No se pudo cargar el listado de pedidos.' });
   }
 };
 
@@ -126,7 +138,7 @@ const getPedidoDetalle = async (req, res) => {
     const { id } = req.params;
 
     const pedidoResult = await pool.query(`
-      SELECT p.id_pedido, p.fecha_pedido, p.estado, p.total, p.metodo_pago,
+      SELECT p.id_pedido, p.fecha_pedido, p.estado, p.total, p.metodo_pago, p.motivo_rechazo,
              c.nombre, c.apellido, c.email,
              f.numero_factura, f.fecha_emision, f.subtotal, f.impuestos
       FROM pedidos p
@@ -157,6 +169,7 @@ const getPedidoDetalle = async (req, res) => {
         fecha: p.fecha_pedido,
         estado: bucketEstado(p.estado),
         metodo_pago: p.metodo_pago,
+        motivo_rechazo: p.motivo_rechazo || null,
         cliente: `${p.nombre} ${p.apellido}`,
         email: p.email,
         numero_factura: p.numero_factura || formatearPedido(p.id_pedido),
@@ -173,14 +186,17 @@ const getPedidoDetalle = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ ok: false, error: error.message });
+    console.error('Error en getPedidoDetalle:', error);
+    res.status(500).json({ ok: false, error: 'No se pudo cargar el detalle del pedido.' });
   }
 };
 
 const aceptarPedido = async (req, res) => {
   try {
     const { id } = req.params;
+    if (!id || isNaN(id)) {
+      return res.status(400).json({ ok: false, error: 'Id de pedido inválido.' });
+    }
 
     const actual = await pool.query(`SELECT estado FROM pedidos WHERE id_pedido = $1`, [id]);
     if (actual.rows.length === 0) {
@@ -193,16 +209,27 @@ const aceptarPedido = async (req, res) => {
     await pool.query(`UPDATE pedidos SET estado = 'Confirmado' WHERE id_pedido = $1`, [id]);
     res.json({ ok: true });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ ok: false, error: error.message });
+    console.error('Error en aceptarPedido:', error);
+    res.status(500).json({ ok: false, error: 'No se pudo aceptar el pedido.' });
   }
 };
 
-// Cancela el pedido y devuelve el stock reservado a los productos.
+// Rechaza el pedido, guarda el motivo (máx. 500 caracteres) y devuelve el
+// stock reservado a los productos.
 const cancelarPedido = async (req, res) => {
   const client = await pool.connect();
   try {
     const { id } = req.params;
+    const motivo = String(req.body?.motivo || '').trim();
+
+    if (!id || isNaN(id)) {
+      client.release();
+      return res.status(400).json({ ok: false, error: 'Id de pedido inválido.' });
+    }
+    if (motivo.length > 500) {
+      client.release();
+      return res.status(400).json({ ok: false, error: 'El motivo no puede tener más de 500 caracteres.' });
+    }
 
     await client.query('BEGIN');
 
@@ -213,7 +240,7 @@ const cancelarPedido = async (req, res) => {
     }
     if (bucketEstado(actual.rows[0].estado) !== 'Pendiente') {
       await client.query('ROLLBACK');
-      return res.status(400).json({ ok: false, error: 'Solo se pueden cancelar pedidos pendientes.' });
+      return res.status(400).json({ ok: false, error: 'Solo se pueden rechazar pedidos pendientes.' });
     }
 
     const items = await client.query(`SELECT id_producto, cantidad FROM detalle_pedidos WHERE id_pedido = $1`, [id]);
@@ -221,14 +248,25 @@ const cancelarPedido = async (req, res) => {
       await client.query(`UPDATE productos SET stock = stock + $1 WHERE id_producto = $2`, [item.cantidad, item.id_producto]);
     }
 
-    await client.query(`UPDATE pedidos SET estado = 'Cancelado' WHERE id_pedido = $1`, [id]);
+    await client.query(
+      `UPDATE pedidos SET estado = 'Rechazado', motivo_rechazo = $1 WHERE id_pedido = $2`,
+      [motivo || null, id]
+    );
 
     await client.query('COMMIT');
     res.json({ ok: true });
   } catch (error) {
-    await client.query('ROLLBACK');
-    console.error(error);
-    res.status(500).json({ ok: false, error: error.message });
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error en cancelarPedido (rechazo):', error);
+
+    // Si la columna motivo_rechazo todavía no existe en la BD, avisamos claro.
+    if (error.code === '42703') {
+      return res.status(500).json({
+        ok: false,
+        error: 'Falta la columna motivo_rechazo en la tabla pedidos. Corre el ALTER TABLE que te indicaron.'
+      });
+    }
+    res.status(500).json({ ok: false, error: 'No se pudo rechazar el pedido.' });
   } finally {
     client.release();
   }

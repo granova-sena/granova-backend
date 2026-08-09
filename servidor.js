@@ -56,7 +56,7 @@ app.use("/api/dashboard", dashboardRoutes)
 app.use("/api/inventario", inventarioRoutes)
 app.use("/api/ventas",     ventasRoutes)
 app.use("/api/alertas",    alertasAdminRoutes)
-app.use("/api/pedidos",    pedidosAdminRoutes)
+app.use("/api/admin/pedidos", pedidosAdminRoutes)
 app.use("/api/usuarios",   usuariosAdminRoutes)
 app.use("/api/reportes",   reportesRoutes)
 
