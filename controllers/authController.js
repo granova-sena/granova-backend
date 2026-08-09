@@ -434,7 +434,7 @@ export async function solicitarRecuperacion(req, res) {
         // Cooldown de reenvío: usa un campo independiente (ultimo_envio_recuperacion),
         // no el token_expiracion (que rige cuánto dura válido el enlace).
         if (cliente.ultimo_envio_recuperacion) {
-            const tiempoDesdeUltimoEnvio = new Date() - new Date(cliente.ultimo_envio_recuperacion)
+            const tiempoDesdeUltimoEnvio = Date.now() - new Date(cliente.ultimo_envio_recuperacion).getTime()
             const minutosTranscurridos = Math.floor(tiempoDesdeUltimoEnvio / 1000 / 60)
 
             if (minutosTranscurridos < REENVIO_COOLDOWN_MIN) {
@@ -603,7 +603,7 @@ export async function solicitarRecuperacionAdmin(req, res) {
 
         // Cooldown de reenvío independiente del token_expiracion (igual que en solicitarRecuperacion)
         if (usuario.ultimo_envio_recuperacion) {
-            const tiempoDesdeUltimoEnvio = new Date() - new Date(usuario.ultimo_envio_recuperacion)
+            const tiempoDesdeUltimoEnvio = Date.now() - new Date(usuario.ultimo_envio_recuperacion).getTime()
             const minutosTranscurridos = Math.floor(tiempoDesdeUltimoEnvio / 1000 / 60)
 
             if (minutosTranscurridos < REENVIO_COOLDOWN_MIN) {
@@ -660,7 +660,7 @@ export async function resetearContraseñaAdmin(req, res) {
 
         const usuario = resultado.rows[0]
 
-        if (new Date() > new Date(usuario.token_expiracion)) {
+        if (Date.now() > new Date(usuario.token_expiracion).getTime()) {
             return res.status(400).json({ error: "El enlace ha expirado, solicita uno nuevo" })
         }
 
