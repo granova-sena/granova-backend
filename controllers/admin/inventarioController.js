@@ -332,10 +332,8 @@ function validarProducto(body) {
     if (categoria_producto === 'maquina') {
         if (!body.marca || !modelo) return 'Para máquinas, marca y número de identificación son obligatorios.';
         if (String(modelo).length > 20) return 'El número de identificación no puede tener más de 20 caracteres.';
-    } else {
-        if (!body.id_lote || !body.tipo_cafe || !body.presentacion) {
-            return 'Para café, lote, categoría y presentación son obligatorios.';
-        }
+    } else if (!body.id_lote || !body.tipo_cafe || !body.presentacion) {
+        return 'Para café, lote, categoría y presentación son obligatorios.';
     }
     return null;
 }
