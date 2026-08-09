@@ -84,11 +84,11 @@ async function obtenerProductosCalculados() {
         const stock = Number(p.stock);
         const esMaquina = p.categoria_producto === 'maquina';
         let pct;
-if (capacidad > 0) {
-    pct = Math.min(Math.round((stock / capacidad) * 100), 100);
-} else {
-    pct = stock > 0 ? 100 : 0;
-}
+        if (capacidad > 0) {
+            pct = Math.min(Math.round((stock / capacidad) * 100), 100);
+        } else {
+            pct = stock > 0 ? 100 : 0;
+        }
         return {
             id: p.id_producto,
             nombre: p.nombre,
@@ -347,6 +347,11 @@ const crearProducto = async (req, res) => {
 
         const esMaquina = categoria_producto === 'maquina';
 
+        let garantiaFinal = null;
+        if (esMaquina && garantia_meses) {
+            garantiaFinal = Number(garantia_meses);
+        }
+
         const result = await pool.query(`
       INSERT INTO productos (
         id_lote, nombre, descripcion, tipo_cafe, presentacion, precio, stock, imagen_url,
@@ -366,7 +371,7 @@ const crearProducto = async (req, res) => {
             esMaquina ? 'maquina' : 'cafe',
             esMaquina ? (marca || null) : null,
             esMaquina ? (modelo || null) : null,
-            esMaquina ? (garantia_meses ? Number(garantia_meses) : null) : null,
+            garantiaFinal,
         ]);
 
         res.json({ ok: true, id: result.rows[0].id_producto });
@@ -388,6 +393,11 @@ const actualizarProducto = async (req, res) => {
         if (errorValidacion) return res.status(400).json({ ok: false, error: errorValidacion });
 
         const esMaquina = categoria_producto === 'maquina';
+
+        let garantiaFinal = null;
+        if (esMaquina && garantia_meses) {
+            garantiaFinal = Number(garantia_meses);
+        }
 
         const result = await pool.query(`
       UPDATE productos
@@ -419,7 +429,7 @@ const actualizarProducto = async (req, res) => {
             esMaquina ? 'maquina' : 'cafe',
             esMaquina ? (marca || null) : null,
             esMaquina ? (modelo || null) : null,
-            esMaquina ? (garantia_meses ? Number(garantia_meses) : null) : null,
+            garantiaFinal,
             id
         ]);
 
