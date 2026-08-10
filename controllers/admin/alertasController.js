@@ -21,9 +21,12 @@ async function obtenerAlertasCalculadas() {
     .map(p => {
       const capacidad = Number(p.capacidad) || 0;
       const stock = Number(p.stock);
-      const pct = capacidad > 0
-        ? Math.min(Math.round((stock / capacidad) * 100), 100)
-        : (stock > 0 ? 100 : 0);
+      let pct;
+if (capacidad > 0) {
+    pct = Math.min(Math.round((stock / capacidad) * 100), 100);
+} else {
+    pct = stock > 0 ? 100 : 0;
+}
       return {
         id: p.id_producto,
         nombre: p.nombre,

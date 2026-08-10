@@ -73,7 +73,7 @@ export const obtenerRecomendaciones = async (req, res) => {
       return res.status(404).json({ ok: false, mensaje: "El cliente no tiene preferencias guardadas" })
     }
 
-    const { sabor_preferido, metodo_preparacion, presupuesto } = prefs.rows[0]
+    const { sabor_preferido, presupuesto } = prefs.rows[0]
 
     // Mapear sabor a tipo_cafe
     const saborTipo = {

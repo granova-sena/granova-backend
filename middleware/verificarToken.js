@@ -4,7 +4,7 @@ export function verificarToken(req, res, next) {
   const authHeader = req.headers.authorization
 
   if (!authHeader) {
-    return res.status(401).json({ error: "No tienes Vivre Card, no puedes pasar 🏴‍☠️" })
+    return res.status(401).json({ error: "Error en la autenticación" })
   }
 
   const token = authHeader.split(" ")[1]
@@ -14,6 +14,7 @@ export function verificarToken(req, res, next) {
     req.usuario = decodificado
     next()
   } catch (error) {
-    return res.status(403).json({ error: "Vivre Card inválido o expirado 💀" })
+    console.error("Error en verificarToken:", error)
+    return res.status(403).json({ error: "Error en la autenticación" })
   }
 }

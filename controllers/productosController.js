@@ -39,7 +39,7 @@ export const obtenerProducto = async (req, res) => {
   try {
     const { id } = req.params
 
-    if (!id || isNaN(id) || Number(id) <= 0) {
+    if (!id || Number.isNaN(Number(id)) || Number(id) <= 0) {
       return res.status(400).json({ error: "El id del producto no es válido" })
     }
 
@@ -59,3 +59,45 @@ export const obtenerProducto = async (req, res) => {
     res.status(500).json({ error: "Error al obtener producto" })
   }
 }
+
+// ─────────────────────────────────────────
+// GET /productos/comparar?ids=5,9,14
+// ─────────────────────────────────────────
+export const compararProductos = async (req, res) => {
+  const { ids } = req.query;
+
+  if (!ids) {
+    return res.status(400).json({ ok: false, mensaje: "Debes enviar al menos 2 ids para comparar" });
+  }
+
+  const idsArray = ids.split(',').map(Number).filter(n => !Number.isNaN(n));
+
+  if (idsArray.length < 2 || idsArray.length > 3) {
+    return res.status(400).json({ ok: false, mensaje: "Puedes comparar entre 2 y 3 productos" });
+  }
+
+  try {
+    const resultado = await pool.query(
+      `SELECT
+         p.id_producto, p.nombre, p.tipo_cafe, p.presentacion, p.precio, p.imagen_url,
+         COALESCE(r.promedio, 0) AS promedio,
+         COALESCE(r.total_resenas, 0) AS total_resenas
+       FROM productos p
+       LEFT JOIN (
+         SELECT dp.id_producto, AVG(re.calificacion) AS promedio, COUNT(*) AS total_resenas
+         FROM resenas re
+         JOIN detalle_pedidos dp ON dp.id_detalle = re.id_detalle_pedido
+         WHERE re.visible = TRUE
+         GROUP BY dp.id_producto
+       ) r ON r.id_producto = p.id_producto
+       WHERE p.id_producto = ANY($1)`,
+      [idsArray]
+    );
+
+    res.status(200).json({ ok: true, data: resultado.rows });
+
+  } catch (error) {
+    console.error("Error comparando productos:", error.message);
+    res.status(500).json({ ok: false, mensaje: "Error interno al comparar productos" });
+  }
+};

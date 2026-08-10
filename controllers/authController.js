@@ -3,7 +3,7 @@ import bcrypt from "bcrypt"
 import jwt from "jsonwebtoken"
 import { OAuth2Client } from "google-auth-library"
 import pool from "../config/db.js"
-import crypto from "crypto"
+import crypto from "node:crypto"
 import transportador from "../config/email.js"
 
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || "http://localhost:3000/auth/google/callback"
@@ -44,8 +44,9 @@ export async function verificarEmailDisponible(req, res) {
         res.json({ disponible: resultado.rows.length === 0 })
 
     } catch (error) {
-        res.status(500).json({ error: "Error al verificar el correo" })
-    }
+    console.error("Error en verificarEmailDisponible:", error)
+    res.status(500).json({ error: "Error al verificar el correo" })
+}
 }
 
 export async function register(req, res) {
@@ -99,9 +100,9 @@ export async function register(req, res) {
                 <p>Confirma tu correo para activar tu cuenta y empezar a comprar. Este enlace expira en 24 horas.</p>
                 <a href="${enlaceVerificacion}">Verificar mi cuenta</a>
             `,
-        }).catch((errorCorreo) => {
-            console.error("No se pudo enviar el correo de verificación:", errorCorreo.message)
-        })
+        }).catch((error_) => {
+    console.error("No se pudo enviar el correo de verificación:", error_.message)
+})
 
         res.status(201).json({
             mensaje: "¡Bienvenido a la tripulación de Granova! Revisa tu correo para verificar tu cuenta antes de iniciar sesión.",
@@ -189,7 +190,7 @@ export async function verificarCuenta(req, res) {
             return res.json({ mensaje: "Tu cuenta ya estaba verificada, ya puedes iniciar sesión" })
         }
 
-        if (!cliente.token_verificacion_expiracion || new Date() > new Date(cliente.token_verificacion_expiracion)) {
+        if (!cliente.token_verificacion_expiracion || Date.now() > new Date(cliente.token_verificacion_expiracion).getTime()) {
             return res.status(400).json({ error: "El enlace de verificación expiró, solicita uno nuevo", expirado: true })
         }
 
@@ -201,8 +202,9 @@ export async function verificarCuenta(req, res) {
         res.json({ mensaje: "¡Cuenta verificada! Ya puedes iniciar sesión ⚓" })
 
     } catch (error) {
-        res.status(500).json({ error: "Error al verificar la cuenta" })
-    }
+    console.error("Error en verificarCuenta:", error)
+    res.status(500).json({ error: "Error al verificar la cuenta" })
+}
 }
 
 // POST /auth/reenviar-verificacion - reenvía el correo de verificación con cooldown
@@ -231,7 +233,7 @@ export async function reenviarVerificacion(req, res) {
         }
 
         if (cliente.ultimo_envio_verificacion) {
-            const tiempoDesdeUltimoEnvio = new Date() - new Date(cliente.ultimo_envio_verificacion)
+            const tiempoDesdeUltimoEnvio = Date.now() - new Date(cliente.ultimo_envio_verificacion).getTime()
             const minutosTranscurridos = Math.floor(tiempoDesdeUltimoEnvio / 1000 / 60)
 
             if (minutosTranscurridos < REENVIO_VERIFICACION_COOLDOWN_MIN) {
@@ -263,15 +265,16 @@ export async function reenviarVerificacion(req, res) {
                 <p>Haz clic en el siguiente enlace para verificar tu cuenta. Este enlace expira en 24 horas.</p>
                 <a href="${enlaceVerificacion}">Verificar mi cuenta</a>
             `,
-        }).catch((errorCorreo) => {
-            console.error("No se pudo reenviar el correo de verificación:", errorCorreo.message)
-        })
+        }).catch((error_) => {
+    console.error("No se pudo reenviar el correo de verificación:", error_.message)
+})
 
         res.json({ mensaje: "Si el correo existe y no está verificado, te reenviamos el enlace" })
 
     } catch (error) {
-        res.status(500).json({ error: "Error al reenviar la verificación" })
-    }
+    console.error("Error en reenviarVerificacion:", error)
+    res.status(500).json({ error: "Error al reenviar la verificación" })
+}
 }
 
 export function googleAuth(req, res) {
@@ -344,9 +347,10 @@ export async function googleCallback(req, res) {
         res.redirect(`${FRONTEND_URL}/auth/callback?token=${token}&cliente=${clienteData}`)
 
     } catch (error) {
-        const errorMsg = encodeURIComponent("No se pudo iniciar sesión con Google")
-        res.redirect(`${FRONTEND_URL}/auth/callback?error=${errorMsg}`)
-    }
+    console.error("Error en googleCallback:", error)
+    const errorMsg = encodeURIComponent("No se pudo iniciar sesión con Google")
+    res.redirect(`${FRONTEND_URL}/auth/callback?error=${errorMsg}`)
+}
 }
 
 export async function loginAdmin(req, res) {
@@ -430,7 +434,7 @@ export async function solicitarRecuperacion(req, res) {
         // Cooldown de reenvío: usa un campo independiente (ultimo_envio_recuperacion),
         // no el token_expiracion (que rige cuánto dura válido el enlace).
         if (cliente.ultimo_envio_recuperacion) {
-            const tiempoDesdeUltimoEnvio = new Date() - new Date(cliente.ultimo_envio_recuperacion)
+            const tiempoDesdeUltimoEnvio = Date.now() - new Date(cliente.ultimo_envio_recuperacion).getTime()
             const minutosTranscurridos = Math.floor(tiempoDesdeUltimoEnvio / 1000 / 60)
 
             if (minutosTranscurridos < REENVIO_COOLDOWN_MIN) {
@@ -462,9 +466,9 @@ export async function solicitarRecuperacion(req, res) {
                 <p>Haz clic en el siguiente enlace para crear una nueva contraseña. Este enlace expira en 1 hora.</p>
                 <a href="${enlace}">Restablecer contraseña</a>
             `,
-        }).catch((errorCorreo) => {
-            console.error("No se pudo enviar el correo de recuperación:", errorCorreo.message)
-        })
+        }).catch((error_) => {
+    console.error("No se pudo enviar el correo de recuperación:", error_.message)
+})
 
         // Se elimina el res.json() duplicado que había al final
         res.json({ mensaje: "Si el correo existe, recibirás un enlace de recuperación" })
@@ -501,7 +505,7 @@ export async function resetearContraseña(req, res) {
 
         const persona = resultado.rows[0]
 
-        if (!persona.token_expiracion || new Date() > new Date(persona.token_expiracion)) {
+        if (!persona.token_expiracion || Date.now() > new Date(persona.token_expiracion).getTime()) {
             return res.status(400).json({ error: "El enlace ha expirado, solicita uno nuevo" })
         }
 
@@ -517,8 +521,9 @@ export async function resetearContraseña(req, res) {
         res.json({ mensaje: "Contraseña restablecida con éxito" })
 
     } catch (error) {
-        res.status(500).json({ error: "Error al restablecer la contraseña" })
-    }
+    console.error("Error en resetearContraseña:", error)
+    res.status(500).json({ error: "Error al restablecer la contraseña" })
+}
 }
 
 export async function googleOneTap(req, res) {
@@ -598,7 +603,7 @@ export async function solicitarRecuperacionAdmin(req, res) {
 
         // Cooldown de reenvío independiente del token_expiracion (igual que en solicitarRecuperacion)
         if (usuario.ultimo_envio_recuperacion) {
-            const tiempoDesdeUltimoEnvio = new Date() - new Date(usuario.ultimo_envio_recuperacion)
+            const tiempoDesdeUltimoEnvio = Date.now() - new Date(usuario.ultimo_envio_recuperacion).getTime()
             const minutosTranscurridos = Math.floor(tiempoDesdeUltimoEnvio / 1000 / 60)
 
             if (minutosTranscurridos < REENVIO_COOLDOWN_MIN) {
@@ -630,9 +635,9 @@ export async function solicitarRecuperacionAdmin(req, res) {
                 <p>Haz clic en el siguiente enlace para crear una nueva contraseña. Este enlace expira en 1 hora.</p>
                 <a href="${enlace}">Restablecer contraseña</a>
             `,
-        }).catch((errorCorreo) => {
-            console.error("No se pudo enviar el correo de recuperación (admin):", errorCorreo.message)
-        })
+        }).catch((error_) => {
+    console.error("No se pudo enviar el correo de recuperación (admin):", error_.message)
+})
 
         res.json({ mensaje: "Si el correo existe, recibirás un enlace de recuperación" })
     } catch (error) {
@@ -655,7 +660,7 @@ export async function resetearContraseñaAdmin(req, res) {
 
         const usuario = resultado.rows[0]
 
-        if (new Date() > new Date(usuario.token_expiracion)) {
+        if (Date.now() > new Date(usuario.token_expiracion).getTime()) {
             return res.status(400).json({ error: "El enlace ha expirado, solicita uno nuevo" })
         }
 

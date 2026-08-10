@@ -14,6 +14,7 @@ export async function listarUsuarios(req, res) {
         res.json(resultado.rows)
 
     } catch (error) {
+        console.error("Error en listarUsuarios:", error)
         res.status(500).json({ error: "Error al obtener los usuarios" })
     }
 }
@@ -45,6 +46,7 @@ export async function obtenerMetricas(req, res) {
         })
 
     } catch (error) {
+        console.error("Error en obtenerMetricas:", error)
         res.status(500).json({ error: "Error al obtener las métricas de usuarios" })
     }
 }
@@ -91,6 +93,7 @@ export async function cambiarEstadoUsuario(req, res) {
         })
 
     } catch (error) {
+        console.error("Error en cambiarEstadoUsuario:", error)
         res.status(500).json({ error: "Error al cambiar el estado del usuario" })
     }
 }
@@ -201,6 +204,7 @@ export async function eliminarUsuario(req, res) {
         })
 
     } catch (error) {
+        console.error("Error en eliminarUsuario:", error)
         res.status(500).json({ error: "Error al eliminar el usuario" })
     }
 }

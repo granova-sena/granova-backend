@@ -85,10 +85,12 @@ async function obtenerProductosCalculados() {
         const capacidad = Number(p.capacidad) || 0;
         const stock = Number(p.stock);
         const esMaquina = p.categoria_producto === 'maquina';
-        const pct = capacidad > 0
-            ? Math.min(Math.round((stock / capacidad) * 100), 100)
-            : (stock > 0 ? 100 : 0);
-
+        let pct;
+        if (capacidad > 0) {
+            pct = Math.min(Math.round((stock / capacidad) * 100), 100);
+        } else {
+            pct = stock > 0 ? 100 : 0;
+        }
         return {
             id: p.id_producto,
             nombre: p.nombre,
@@ -131,7 +133,12 @@ const getResumen = async (req, res) => {
 
         const hoy = Number(ventasHoy.rows[0].total);
         const ayer = Number(ventasAyer.rows[0].total);
-        const cambioVentas = ayer === 0 ? (hoy > 0 ? 100 : 0) : Math.round(((hoy - ayer) / ayer) * 100);
+        let cambioVentas;
+        if (ayer === 0) {
+            cambioVentas = hoy > 0 ? 100 : 0;
+        } else {
+            cambioVentas = Math.round(((hoy - ayer) / ayer) * 100);
+        }
 
         res.json({
             ok: true,
@@ -280,9 +287,12 @@ const getProductoPorId = async (req, res) => {
         const producto = result.rows[0];
         const capacidad = Number(producto.capacidad) || 0;
         const stock = Number(producto.stock);
-        const pct = capacidad > 0
-            ? Math.min(Math.round((stock / capacidad) * 100), 100)
-            : (stock > 0 ? 100 : 0);
+        let pct;
+        if (capacidad > 0) {
+            pct = Math.min(Math.round((stock / capacidad) * 100), 100);
+        } else {
+            pct = stock > 0 ? 100 : 0;
+        }
 
         res.json({
             ok: true,
@@ -317,16 +327,13 @@ function validarProducto(body) {
     if (!nombre || precio === '' || precio == null || stock === '' || stock == null) {
         return 'Faltan campos obligatorios.';
     }
-    if (isNaN(precio) || Number(precio) < 0) return 'El precio debe ser un número válido.';
-    if (isNaN(stock) || Number(stock) < 0) return 'El stock debe ser un número válido.';
+    if (Number.isNaN(Number(precio)) || Number(precio) < 0) return 'El precio debe ser un número válido.';
+    if (Number.isNaN(Number(stock)) || Number(stock) < 0) return 'El stock debe ser un número válido.';
     if (descripcion && contieneOfensivas(descripcion)) return 'La descripción contiene palabras no permitidas.';
 
     if (categoria_producto === 'maquina') {
         if (!body.marca || !modelo) return 'Para máquinas, marca y número de identificación son obligatorios.';
         if (String(modelo).length > 20) return 'El número de identificación no puede tener más de 20 caracteres.';
-        if (garantia_meses !== undefined && garantia_meses !== null && garantia_meses !== '') {
-            if (isNaN(garantia_meses) || Number(garantia_meses) < 0) return 'La garantía debe ser un número de meses válido (0 o más).';
-        }
     } else {
         if (!body.id_lote || !body.tipo_cafe || !body.presentacion) {
             return 'Para café, lote, categoría y presentación son obligatorios.';
@@ -352,6 +359,11 @@ const crearProducto = async (req, res) => {
 
         const esMaquina = categoria_producto === 'maquina';
 
+        let garantiaFinal = null;
+        if (esMaquina && garantia_meses) {
+            garantiaFinal = Number(garantia_meses);
+        }
+
         const result = await pool.query(`
       INSERT INTO productos (
         id_lote, nombre, descripcion, tipo_cafe, presentacion, precio, stock, imagen_url,
@@ -371,7 +383,7 @@ const crearProducto = async (req, res) => {
             esMaquina ? 'maquina' : 'cafe',
             esMaquina ? (marca || null) : null,
             esMaquina ? (modelo || null) : null,
-            esMaquina ? (garantia_meses ? Number(garantia_meses) : null) : null,
+            garantiaFinal,
         ]);
 
         res.json({ ok: true, id: result.rows[0].id_producto });
@@ -393,6 +405,11 @@ const actualizarProducto = async (req, res) => {
         if (errorValidacion) return res.status(400).json({ ok: false, error: errorValidacion });
 
         const esMaquina = categoria_producto === 'maquina';
+
+        let garantiaFinal = null;
+        if (esMaquina && garantia_meses) {
+            garantiaFinal = Number(garantia_meses);
+        }
 
         const result = await pool.query(`
       UPDATE productos
@@ -424,7 +441,7 @@ const actualizarProducto = async (req, res) => {
             esMaquina ? 'maquina' : 'cafe',
             esMaquina ? (marca || null) : null,
             esMaquina ? (modelo || null) : null,
-            esMaquina ? (garantia_meses ? Number(garantia_meses) : null) : null,
+            garantiaFinal,
             id
         ]);
 
@@ -476,7 +493,7 @@ const importarProductos = async (req, res) => {
                 errores.push({ fila: numeroFila, error: 'Faltan datos obligatorios (nombre, categoría, presentación o lote). Revisa que el archivo sea compatible.' });
                 continue;
             }
-            if (isNaN(precio) || precio < 0 || isNaN(stock) || stock < 0) {
+            if (Number.isNaN(precio) || precio < 0 || Number.isNaN(stock) || stock < 0) {
                 errores.push({ fila: numeroFila, error: 'Precio o stock inválido.' });
                 continue;
             }
@@ -511,7 +528,7 @@ const restablecerProducto = async (req, res) => {
         const { id } = req.params;
         const { cantidad } = req.body;
 
-        if (cantidad === undefined || cantidad === null || isNaN(cantidad) || Number(cantidad) < 0) {
+        if (cantidad === undefined || cantidad === null || Number.isNaN(Number(cantidad)) || Number(cantidad) < 0) {
             return res.status(400).json({ ok: false, error: 'Ingresa una cantidad válida (0 o más).' });
         }
 

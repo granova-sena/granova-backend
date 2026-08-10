@@ -43,7 +43,12 @@ const getResumen = async (req, res) => {
         AND date_trunc('month', fecha_pedido) = date_trunc('month', CURRENT_DATE - INTERVAL '1 month')
     `);
     const anterior = Number(totalMesAnterior.rows[0].total);
-    const cambio = anterior === 0 ? (totalEnPedidos > 0 ? 100 : 0) : Math.round(((totalEnPedidos - anterior) / anterior) * 100);
+    let cambio;
+if (anterior === 0) {
+    cambio = totalEnPedidos > 0 ? 100 : 0;
+} else {
+    cambio = Math.round(((totalEnPedidos - anterior) / anterior) * 100);
+}
 
     res.json({
       ok: true,
