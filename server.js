@@ -13,6 +13,8 @@ import asistenteRoutes from "./routes/asistenteRoutes.js"
 import fincasRoutes    from "./routes/fincasRoutes.js"
 import preferenciasRoutes from "./routes/preferenciasRoutes.js"
 import clientesRoutes  from "./routes/clientesRoutes.js"
+import cuponesRoutes   from "./routes/cuponesRoutes.js"
+import promocionesRoutes from "./routes/promocionesRoutes.js"
 
 // Rutas tuyas
 import productosRoutes from "./routes/productosRoutes.js"
@@ -37,7 +39,8 @@ const puerto = process.env.PORT || 3000
 app.set('trust proxy', 1)
 const origenesPermitidos = [
   'http://localhost:5173',
-  'https://granova-frontend.vercel.app'
+  'https://www.granovaoficial.com',
+  'https://granovaoficial.com'
 ];
 
 app.use(cors({
@@ -58,6 +61,8 @@ app.use("/pedidos",   pedidosRoutes)
 app.use("/lotes",     lotesRoutes)
 app.use("/api/preferencias", preferenciasRoutes)
 app.use("/api/clientes",   clientesRoutes)
+app.use("/api/cupones",    cuponesRoutes)
+app.use("/api/promociones", promocionesRoutes)
 
 
 // Rutas tuyas con prefijo /api

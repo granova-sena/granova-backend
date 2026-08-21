@@ -1,0 +1,54 @@
+Necesito que actualices mi proyecto para que use el nuevo dominio 
+granovaoficial.com en vez de las URLs viejas de Vercel y Railway.
+
+CONTEXTO:
+- Frontend nuevo: https://www.granovaoficial.com (antes: https://granova-frontend.vercel.app)
+- Backend nuevo: https://api.granovaoficial.com (antes: https://granova-backend-production.up.railway.app)
+
+TAREAS:
+
+1. Busca en TODO el proyecto (frontend y backend) cualquier URL 
+   hardcodeada (escrita directamente en el código) que contenga:
+   - "granova-frontend.vercel.app"
+   - "granova-backend-production.up.railway.app"
+   - "vercel.app"
+   - "railway.app"
+
+2. En el backend, revisa especialmente los archivos de autenticación 
+   (rutas de Google OAuth, callbacks, redirects) y reemplaza cualquier 
+   URL hardcodeada por una variable de entorno, si no la usa ya. 
+   Por ejemplo, si encuentras algo como:
+   res.redirect('https://granova-frontend.vercel.app/dashboard')
+   
+   Cámbialo a:
+   res.redirect(`${process.env.FRONTEND_URL}/dashboard`)
+
+3. Revisa si existe un archivo .env o .env.example en el backend y 
+   en el frontend. Si existe una variable como FRONTEND_URL, 
+   CLIENT_URL, VITE_API_URL o similar, actualiza su valor:
+   
+   Backend (.env):
+   FRONTEND_URL=https://www.granovaoficial.com
+   
+   Frontend (.env):
+   VITE_API_URL=https://api.granovaoficial.com
+
+4. Revisa también configuraciones de CORS en el backend (busca 
+   "cors(" o "Access-Control-Allow-Origin") y asegúrate de que el 
+   nuevo dominio esté permitido, dejando también localhost para 
+   seguir desarrollando localmente. Por ejemplo:
+   
+   app.use(cors({
+     origin: [
+       'http://localhost:5173',
+       'https://www.granovaoficial.com',
+       'https://granovaoficial.com'
+     ],
+     credentials: true
+   }))
+
+5. Muéstrame un resumen de todos los archivos que modificaste y las 
+   líneas exactas que cambiaste, antes de que yo haga commit.
+
+NO cambies nada relacionado con localhost — necesito seguir 
+desarrollando en local mientras tanto.
