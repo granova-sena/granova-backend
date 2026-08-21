@@ -16,7 +16,7 @@ function formatearPedido(id) {
 // Normaliza estados históricos: los pedidos creados desde Registro de ventas
 // pueden venir como 'Pendiente' o 'Pagado'. 'Cancelado' (nombre viejo) y
 // 'Rechazado' (nombre nuevo) se tratan igual, para no perder pedidos
-// rechazados antes de este cambio. Todo insensible a mayúsculas/espacios.
+// rechazados antes de este cambio.  insensible a mayúsculas/espacios.
 function bucketEstado(estadoCrudo) {
   const estado = normalizar(estadoCrudo);
   if (estado === 'cancelado' || estado === 'rechazado') return 'Rechazado';
@@ -79,9 +79,10 @@ const getPedidos = async (req, res) => {
       FROM pedidos p
       JOIN clientes c ON c.id_cliente = p.id_cliente
       LEFT JOIN LATERAL (
-        SELECT pr.nombre AS producto_nombre
+        SELECT pr.nombre AS producto_nombre, l.finca AS finca_nombre, l.codigo_lote
         FROM detalle_pedidos dp
         JOIN productos pr ON pr.id_producto = dp.id_producto
+        LEFT JOIN lotes l ON l.id_lote = pr.id_lote
         WHERE dp.id_pedido = p.id_pedido
         ORDER BY dp.id_detalle
         LIMIT 1
@@ -100,6 +101,8 @@ const getPedidos = async (req, res) => {
       cliente: `${p.nombre} ${p.apellido}`,
       email: p.email,
       producto: p.producto_nombre || 'Sin producto',
+      finca: p.finca_nombre || null,
+      lote: p.codigo_lote || null,
       cantidad: Number(p.cantidad_total) || 0,
       total: Number(p.total),
       estado: bucketEstado(p.estado),
@@ -137,7 +140,7 @@ const getPedidos = async (req, res) => {
   }
 };
 
-// Trae todo lo necesario para armar la factura: cliente, items y datos de la factura.
+// Trae  lo necesario para armar la factura: cliente, items y datos de la factura.
 const getPedidoDetalle = async (req, res) => {
   try {
     const { id } = req.params;
@@ -199,7 +202,7 @@ const getPedidoDetalle = async (req, res) => {
 const aceptarPedido = async (req, res) => {
   try {
     const { id } = req.params;
-    if (!id || isNaN(id)) {
+if (!id || Number.isNaN(Number(id))) {
       return res.status(400).json({ ok: false, error: 'Id de pedido inválido.' });
     }
 
@@ -211,7 +214,7 @@ const aceptarPedido = async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Solo se pueden aceptar pedidos pendientes.' });
     }
 
-    await pool.query(`UPDATE pedidos SET estado = 'Confirmado' WHERE id_pedido = $1`, [id]);
+    await pool.query(`UPDATE pedidos SET estado = 'confirmado' WHERE id_pedido = $1`, [id]);
     res.json({ ok: true });
   } catch (error) {
     console.error('Error en aceptarPedido:', error);
@@ -227,7 +230,7 @@ const cancelarPedido = async (req, res) => {
     const { id } = req.params;
     const motivo = String(req.body?.motivo || '').trim();
 
-    if (!id || isNaN(id)) {
+if (!id || Number.isNaN(Number(id))) {
       client.release();
       return res.status(400).json({ ok: false, error: 'Id de pedido inválido.' });
     }
@@ -254,7 +257,7 @@ const cancelarPedido = async (req, res) => {
     }
 
     await client.query(
-      `UPDATE pedidos SET estado = 'Rechazado', motivo_rechazo = $1 WHERE id_pedido = $2`,
+      `UPDATE pedidos SET estado = 'cancelado', motivo_rechazo = $1 WHERE id_pedido = $2`,
       [motivo || null, id]
     );
 

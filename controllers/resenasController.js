@@ -9,9 +9,12 @@ function contieneGroserias(texto) {
 
 // POST /resenas
 export const crearResena = async (req, res) => {
-  const { id_cliente, id_detalle, calificacion, comentario } = req.body;
+  const { id_detalle, calificacion, comentario } = req.body;
+  // El cliente sale del token, nunca del body — así nadie puede
+  // reseñar haciéndose pasar por otro cliente.
+  const id_cliente = req.usuario.id;
 
-  if (!id_cliente || !id_detalle || !calificacion) {
+  if (!id_detalle || !calificacion) {
     return res.status(400).json({ ok: false, mensaje: "Faltan campos obligatorios" });
   }
   if (calificacion < 1 || calificacion > 5) {

@@ -79,9 +79,10 @@ const getVentas = async (req, res) => {
       JOIN clientes c ON c.id_cliente = p.id_cliente
       LEFT JOIN facturas f ON f.id_pedido = p.id_pedido
       LEFT JOIN LATERAL (
-        SELECT pr.nombre AS producto_nombre, pr.categoria_producto
+        SELECT pr.nombre AS producto_nombre, pr.categoria_producto, l.finca AS finca_nombre, l.codigo_lote
         FROM detalle_pedidos dp
         JOIN productos pr ON pr.id_producto = dp.id_producto
+        LEFT JOIN lotes l ON l.id_lote = pr.id_lote
         WHERE dp.id_pedido = p.id_pedido
         ORDER BY dp.id_detalle
         LIMIT 1
@@ -101,6 +102,8 @@ const getVentas = async (req, res) => {
       email: v.email,
       producto: v.producto_nombre || 'Sin producto',
       esMaquina: v.categoria_producto === 'maquina',
+      finca: v.finca_nombre || null,
+      lote: v.codigo_lote || null,
       cantidad: Number(v.cantidad_total) || 0,
       total: Number(v.total),
       estado: v.estado,
@@ -201,14 +204,24 @@ const crearVenta = async (req, res) => {
       detalles.push({ id_producto: producto.id_producto, cantidad, precio_unitario, subtotal });
     }
 
-    // Estados válidos: 'Pendiente' o 'Confirmado' (ya pagado/aceptado).
-    const estadoFinal = estado === 'Confirmado' ? 'Confirmado' : 'Pendiente';
+    // Valores reales del CHECK "pedidos_estado_check" (confirmados con
+    // pg_get_constraintdef): pendiente, confirmado, en_proceso, enviado,
+    // entregado, cancelado —  en minúscula. El modal de "Nueva venta"
+    // mandaba 'Pendiente'/'Confirmado' con mayúscula, lo que rompía el CHECK.
+    const estadoFinal = estado === 'Confirmado' ? 'confirmado' : 'pendiente';
+
+    // Igual que con el estado: el CHECK "pedidos_metodo_pago_check" solo
+    // acepta los valores en minúscula que usa pedidosController.js
+    // (tarjeta, pse, efectivo, transferencia, contra_entrega, nequi,
+    // daviplata). El modal de "Nueva venta" manda 'Nequi'/'Tarjeta' con
+    // mayúscula inicial, así que lo normalizamos antes de insertar.
+    const metodoPagoFinal = metodo_pago ? String(metodo_pago).toLowerCase() : null;
 
     const pedidoResult = await client.query(`
       INSERT INTO pedidos (id_cliente, fecha_pedido, estado, metodo_pago, total)
       VALUES ($1, NOW(), $2, $3, $4)
       RETURNING id_pedido
-    `, [id_cliente, estadoFinal, metodo_pago || null, total]);
+    `, [id_cliente, estadoFinal, metodoPagoFinal, total]);
 
     const id_pedido = pedidoResult.rows[0].id_pedido;
 
@@ -223,11 +236,16 @@ const crearVenta = async (req, res) => {
       `, [d.cantidad, d.id_producto]);
     }
 
+    // Igual que en facturasModel.insertarFactura (la ruta normal), no se
+    // manda 'estado' explícito: la tabla facturas tiene su propio DEFAULT
+    // y su propio CHECK ("facturas_estado_check"), que no necesariamente
+    // acepta los mismos valores que pedidos_estado_check. Mandar
+    // estadoFinal (p.ej. 'Confirmado') rompía ese CHECK.
     const numeroFactura = `F-${String(id_pedido).padStart(5, '0')}`;
     await client.query(`
-      INSERT INTO facturas (id_pedido, numero_factura, fecha_emision, subtotal, impuestos, total, estado)
-      VALUES ($1, $2, NOW(), $3, 0, $3, $4)
-    `, [id_pedido, numeroFactura, total, estadoFinal]);
+      INSERT INTO facturas (id_pedido, numero_factura, fecha_emision, subtotal, impuestos, total)
+      VALUES ($1, $2, NOW(), $3, 0, $3)
+    `, [id_pedido, numeroFactura, total]);
 
     await client.query('COMMIT');
     res.json({ ok: true, id_pedido, numero_factura: numeroFactura, total });

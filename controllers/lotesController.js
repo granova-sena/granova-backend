@@ -183,3 +183,53 @@ export const descargarCertificadoLote = async (req, res) => {
     res.status(500).json({ ok: false, mensaje: "Error interno al generar el certificado" });
   }
 };
+
+// ─────────────────────────────────────────
+// POST /inventario/lotes - crear lote (empleado)
+// ─────────────────────────────────────────
+export const crearLote = async (req, res) => {
+  try {
+    const { codigo_lote, finca, region, variedad, cantidad_kg } = req.body;
+    if (!codigo_lote || !finca || cantidad_kg === undefined) {
+      return res.status(400).json({ ok: false, error: "codigo_lote, finca y cantidad_kg son obligatorios" });
+    }
+    const result = await pool.query(
+      `INSERT INTO lotes (codigo_lote, finca, region, variedad, cantidad_kg, estado, fecha_registro)
+       VALUES ($1, $2, $3, $4, $5, 'disponible', NOW()) RETURNING id_lote`,
+      [codigo_lote.trim(), finca, region || null, variedad || null, Number(cantidad_kg)]
+    );
+    res.json({ ok: true, id_lote: result.rows[0].id_lote });
+  } catch (error) {
+    console.error(error);
+    if (error.code === "23505") {
+      return res.status(400).json({ ok: false, error: "Ese código de lote ya existe" });
+    }
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+// ─────────────────────────────────────────
+// PATCH /inventario/lotes/:id - editar lote (empleado)
+// ─────────────────────────────────────────
+export const actualizarLote = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { codigo_lote, region, variedad, cantidad_kg, estado } = req.body;
+    const result = await pool.query(
+      `UPDATE lotes SET
+         codigo_lote = COALESCE($1, codigo_lote),
+         region = COALESCE($2, region),
+         variedad = COALESCE($3, variedad),
+         cantidad_kg = COALESCE($4, cantidad_kg),
+         estado = COALESCE($5, estado)
+       WHERE id_lote = $6 RETURNING id_lote`,
+      [codigo_lote || null, region || null, variedad || null,
+       cantidad_kg !== undefined ? Number(cantidad_kg) : null, estado || null, id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ ok: false, error: "Lote no encontrado" });
+    res.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};

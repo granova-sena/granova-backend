@@ -6,6 +6,10 @@ import pool from "../config/db.js";
 export const obtenerPreferencias = async (req, res) => {
   const { id_cliente } = req.params
 
+  if (String(req.usuario.id) !== String(id_cliente)) {
+    return res.status(403).json({ ok: false, mensaje: "No puedes ver las preferencias de otro cliente" })
+  }
+
   try {
     const resultado = await pool.query(
       `SELECT * FROM preferencias_cliente WHERE id_cliente = $1`,
@@ -28,9 +32,12 @@ export const obtenerPreferencias = async (req, res) => {
 // POST /api/preferencias
 // ─────────────────────────────────────────
 export const guardarPreferencias = async (req, res) => {
-  const { id_cliente, sabor_preferido, metodo_preparacion, presupuesto } = req.body
+  const { sabor_preferido, metodo_preparacion, presupuesto } = req.body
+  // El cliente sale del token, nunca del body — así nadie puede
+  // sobreescribir las preferencias de otro.
+  const id_cliente = req.usuario.id
 
-  if (!id_cliente || !sabor_preferido || !metodo_preparacion || !presupuesto) {
+  if (!sabor_preferido || !metodo_preparacion || !presupuesto) {
     return res.status(400).json({ ok: false, mensaje: "Faltan campos obligatorios" })
   }
 
@@ -61,6 +68,10 @@ export const guardarPreferencias = async (req, res) => {
 // ─────────────────────────────────────────
 export const obtenerRecomendaciones = async (req, res) => {
   const { id_cliente } = req.params
+
+  if (String(req.usuario.id) !== String(id_cliente)) {
+    return res.status(403).json({ ok: false, mensaje: "No puedes ver las recomendaciones de otro cliente" })
+  }
 
   try {
     // Obtener preferencias del cliente

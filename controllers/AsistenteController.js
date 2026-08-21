@@ -1,6 +1,6 @@
 const N8N_WEBHOOK_URL = "https://n8n-production-aacb.up.railway.app/webhook/granova-chat"
 
-// TODO Daniel: pega aquí la URL del webhook de n8n del asistente de CLIENTE.
+// Daniel: pega aquí la URL del webhook de n8n del asistente de CLIENTE.
 const N8N_WEBHOOK_URL_CLIENTE = "https://n8n-production-aacb.up.railway.app/webhook/Chat-Cliente"
 
 
@@ -12,7 +12,12 @@ export async function chatConAsistente(req, res) {
             return res.status(400).json({ error: "El mensaje es obligatorio" })
         }
 
-        
+        const respuestaN8n = await fetch(N8N_WEBHOOK_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mensaje, idAdmin }),
+            signal: AbortSignal.timeout(20000),
+        })
 
         const textoRespuesta = await respuestaN8n.text()
 

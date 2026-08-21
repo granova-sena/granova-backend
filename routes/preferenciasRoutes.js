@@ -1,14 +1,15 @@
-import express from 'express'
-import { 
-  obtenerPreferencias, 
-  guardarPreferencias, 
-  obtenerRecomendaciones 
-} from '../controllers/preferenciasController.js'
+import express from "express";
+import {
+  obtenerPreferencias,
+  guardarPreferencias,
+  obtenerRecomendaciones
+} from "../controllers/preferenciasController.js";
+import { verificarToken } from "../middleware/verificarToken.js";
 
-const router = express.Router()
+const router = express.Router();
 
-router.get('/:id_cliente', obtenerPreferencias)
-router.post('/', guardarPreferencias)
-router.get('/:id_cliente/recomendaciones', obtenerRecomendaciones)
+router.get('/:id_cliente', verificarToken, obtenerPreferencias)
+router.post('/', verificarToken, guardarPreferencias)
+router.get('/:id_cliente/recomendaciones', verificarToken, obtenerRecomendaciones)
 
 export default router

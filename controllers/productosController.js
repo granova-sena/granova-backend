@@ -11,6 +11,7 @@ export const obtenerProductos = async (req, res) => {
         tipo_cafe,
         presentacion,
         precio,
+        precio_mayorista,
         stock,
         imagen_url,
         estado,

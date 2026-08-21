@@ -49,12 +49,61 @@ export async function verificarEmailDisponible(req, res) {
 }
 }
 
+// Valores permitidos para los campos nuevos de clientes (Frente 1 - Jhon)
+const TIPOS_PERSONA = ["natural", "juridica"]
+const TIPOS_DOCUMENTO = ["CC", "CE", "NIT", "PASAPORTE"]
+const TIPOS_CLIENTE = ["minorista", "mayorista"]
+
 export async function register(req, res) {
     try {
-        const { nombre, apellido, email, contraseña } = req.body
+        const {
+            nombre, apellido, email, contraseña,
+            tipo_persona, tipo_documento, numero_documento,
+            digito_verificacion, razon_social, tipo_cliente
+        } = req.body
 
         if (!nombre || !apellido || !email || !contraseña) {
             return res.status(400).json({ error: "Todos los campos son obligatorios" })
+        }
+
+        // Valores por defecto: los registros por Google no envían estos campos
+        // y caen en "natural / minorista" como pide la especificación.
+        const tipoPersona = tipo_persona || "natural"
+        const tipoCliente = tipo_cliente || "minorista"
+
+        if (!TIPOS_PERSONA.includes(tipoPersona)) {
+            return res.status(400).json({ error: "Tipo de persona inválido. Opciones: natural, juridica" })
+        }
+
+        if (!TIPOS_CLIENTE.includes(tipoCliente)) {
+            return res.status(400).json({ error: "Tipo de cliente inválido. Opciones: minorista, mayorista" })
+        }
+
+        if (!tipo_documento || !TIPOS_DOCUMENTO.includes(tipo_documento)) {
+            return res.status(400).json({ error: "Tipo de documento inválido. Opciones: CC, CE, NIT, PASAPORTE" })
+        }
+
+        if (!numero_documento || !numero_documento.trim()) {
+            return res.status(400).json({ error: "El número de documento es obligatorio" })
+        }
+
+        // Reglas por tipo de persona:
+        // - Jurídica: el documento debe ser NIT, y exige razón social y dígito de verificación.
+        // - Natural: el documento NO puede ser NIT, y no lleva razón social.
+        if (tipoPersona === "juridica") {
+            if (tipo_documento !== "NIT") {
+                return res.status(400).json({ error: "Una persona jurídica debe registrarse con NIT" })
+            }
+            if (!razon_social || !razon_social.trim()) {
+                return res.status(400).json({ error: "La razón social es obligatoria para personas jurídicas" })
+            }
+            if (!digito_verificacion || !digito_verificacion.trim()) {
+                return res.status(400).json({ error: "El dígito de verificación del NIT es obligatorio" })
+            }
+        } else {
+            if (tipo_documento === "NIT") {
+                return res.status(400).json({ error: "Una persona natural no puede registrarse con NIT" })
+            }
         }
 
         // Chequeo explícito contra las dos tablas: el UNIQUE constraint de "clientes"
@@ -78,10 +127,12 @@ export async function register(req, res) {
         const expiracionVerificacion = new Date(Date.now() + TOKEN_VERIFICACION_EXPIRACION_MIN * 60 * 1000)
 
         const resultado = await pool.query(
-            `INSERT INTO clientes (nombre, apellido, email, contraseña, token_verificacion, token_verificacion_expiracion, ultimo_envio_verificacion)
-             VALUES ($1, $2, $3, $4, $5, $6, NOW())
+            `INSERT INTO clientes (nombre, apellido, email, contraseña, token_verificacion, token_verificacion_expiracion, ultimo_envio_verificacion,
+                                   tipo_persona, tipo_documento, numero_documento, digito_verificacion, razon_social, tipo_cliente)
+             VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8, $9, $10, $11, $12)
              RETURNING id_cliente, nombre, email`,
-            [nombre, apellido, email, contraseñaHash, tokenVerificacion, expiracionVerificacion]
+            [nombre, apellido, email, contraseñaHash, tokenVerificacion, expiracionVerificacion,
+             tipoPersona, tipo_documento, numero_documento.trim(), digito_verificacion || null, razon_social || null, tipoCliente]
         )
 
         const cliente = resultado.rows[0]
@@ -111,6 +162,11 @@ export async function register(req, res) {
 
     } catch (error) {
         if (error.code === "23505") {
+            // Distinguir entre email duplicado y documento duplicado:
+            // cada columna UNIQUE tiene su propia constraint en Postgres/Supabase.
+            if (error.constraint && error.constraint.includes("numero_documento")) {
+                return res.status(400).json({ error: "Ese documento ya está registrado" })
+            }
             return res.status(400).json({ error: "Ese correo ya está registrado" })
         }
         res.status(500).json({ error: "Error al registrar, intenta de nuevo" })
@@ -158,6 +214,12 @@ export async function login(req, res) {
                 nombre: cliente.nombre,
                 apellido: cliente.apellido,
                 email: cliente.email,
+                tipo_persona: cliente.tipo_persona,
+                tipo_documento: cliente.tipo_documento,
+                numero_documento: cliente.numero_documento,
+                digito_verificacion: cliente.digito_verificacion,
+                razon_social: cliente.razon_social,
+                tipo_cliente: cliente.tipo_cliente,
             },
         })
 
@@ -339,6 +401,8 @@ export async function googleCallback(req, res) {
             apellido: cliente.apellido,
             email: cliente.email,
             foto: payload.picture,
+            tipo_persona: cliente.tipo_persona,
+            tipo_cliente: cliente.tipo_cliente,
         }))
 
         // El token va en la URL (no en cookie httpOnly): AuthCallback corre en el
@@ -373,8 +437,12 @@ export async function loginAdmin(req, res) {
             return res.status(401).json({ error: "Contraseña incorrecta" })
         }
 
-        if (usuario.rol !== "admin") {
-            return res.status(403).json({ error: "No tienes permisos de administrador" })
+        if (!["admin", "empleado"].includes(usuario.rol)) {
+            return res.status(403).json({ error: "No tienes permisos para acceder" })
+        }
+
+        if (usuario.estado === "bloqueado") {
+            return res.status(403).json({ error: "Tu cuenta está bloqueada, contacta al administrador" })
         }
 
         const token = jwt.sign(
@@ -575,6 +643,12 @@ export async function googleOneTap(req, res) {
                 nombre: cliente.nombre,
                 apellido: cliente.apellido,
                 email: cliente.email,
+                tipo_persona: cliente.tipo_persona,
+                tipo_documento: cliente.tipo_documento,
+                numero_documento: cliente.numero_documento,
+                digito_verificacion: cliente.digito_verificacion,
+                razon_social: cliente.razon_social,
+                tipo_cliente: cliente.tipo_cliente,
             },
         })
     } catch (error) {

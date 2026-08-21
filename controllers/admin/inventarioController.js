@@ -1,5 +1,6 @@
 import pool from "../../config/db.js"
 import { registrarResuelta } from "../../utils/resueltasHoy.js"
+import { obtenerParametro } from "./parametrosController.js"
 
 const UMBRAL_STOCK_BAJO = 50; // % de la capacidad del lote
 
@@ -73,7 +74,7 @@ function valorPorCampo(fila, campo) {
 
 async function obtenerProductosCalculados() {
     const result = await pool.query(`
-    SELECT pr.id_producto, pr.nombre, pr.tipo_cafe, pr.precio, pr.stock, pr.imagen_url,
+    SELECT pr.id_producto, pr.nombre, pr.tipo_cafe, pr.precio, pr.costo_unitario, pr.stock, pr.imagen_url,
            pr.categoria_producto, pr.marca, pr.modelo, pr.garantia_meses,
            l.finca, l.variedad, l.cantidad_kg AS capacidad
     FROM productos pr
@@ -209,6 +210,65 @@ const getLotes = async (req, res) => {
     }
 };
 
+// Inventario agrupado por finca -> lote -> productos, para el panel de empleado
+const getInventarioPorFinca = async (req, res) => {
+    try {
+        const result = await pool.query(`
+      SELECT f.id AS id_finca, f.nombre AS finca_nombre,
+             l.id_lote, l.codigo_lote, l.cantidad_kg AS lote_kg, l.kg_perdido, l.kg_en_proceso,
+             p.id_producto, p.nombre AS producto_nombre, p.precio, p.precio_mayorista, p.stock,
+             p.id_presentacion, pc.nombre AS presentacion_nombre, pc.kg_equivalente
+      FROM fincas f
+      JOIN lotes l ON l.finca = f.nombre
+      LEFT JOIN productos p ON p.id_lote = l.id_lote AND p.estado = 'activo'
+      LEFT JOIN presentaciones_catalogo pc ON pc.id_presentacion = p.id_presentacion
+      ORDER BY f.nombre, l.codigo_lote, p.nombre
+    `);
+
+        const fincas = new Map();
+        for (const row of result.rows) {
+            if (!fincas.has(row.id_finca)) {
+                fincas.set(row.id_finca, { id_finca: row.id_finca, nombre: row.finca_nombre, kgTotales: 0, lotes: new Map() });
+            }
+            const finca = fincas.get(row.id_finca);
+
+            if (!finca.lotes.has(row.id_lote)) {
+                finca.lotes.set(row.id_lote, {
+                    id_lote: row.id_lote,
+                    codigo_lote: row.codigo_lote,
+                    cantidad_kg: Number(row.lote_kg),
+                    kg_perdido: Number(row.kg_perdido) || 0,
+                    kg_en_proceso: Number(row.kg_en_proceso) || 0,
+                    productos: [],
+                });
+                finca.kgTotales += Number(row.lote_kg) || 0;
+            }
+            if (row.id_producto) {
+                finca.lotes.get(row.id_lote).productos.push({
+                    id_producto: row.id_producto,
+                    nombre: row.producto_nombre,
+                    precio: Number(row.precio),
+                    precio_mayorista: row.precio_mayorista !== null ? Number(row.precio_mayorista) : null,
+                    stock: Number(row.stock),
+                    id_presentacion: row.id_presentacion,
+                    presentacion_nombre: row.presentacion_nombre,
+                    kg_equivalente: row.kg_equivalente !== null ? Number(row.kg_equivalente) : null,
+                });
+            }
+        }
+
+        const salida = [...fincas.values()].map(f => ({
+            ...f,
+            lotes: [...f.lotes.values()],
+        }));
+
+        res.json({ ok: true, fincas: salida });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ ok: false, error: error.message });
+    }
+};
+
 // Categorías de café que ya existen en la BD, para el desplegable.
 const getCategorias = async (req, res) => {
     try {
@@ -322,32 +382,83 @@ const getProductoPorId = async (req, res) => {
     }
 };
 
-function validarProducto(body) {
-    const { nombre, precio, stock, categoria_producto, descripcion, modelo, garantia_meses } = body;
+function validarCamposBasicos({ nombre, precio, stock }) {
     if (!nombre || precio === '' || precio == null || stock === '' || stock == null) {
         return 'Faltan campos obligatorios.';
     }
-    if (Number.isNaN(Number(precio)) || Number(precio) < 0) return 'El precio debe ser un número válido.';
-    if (Number.isNaN(Number(stock)) || Number(stock) < 0) return 'El stock debe ser un número válido.';
-    if (descripcion && contieneOfensivas(descripcion)) return 'La descripción contiene palabras no permitidas.';
-
-    if (categoria_producto === 'maquina') {
-        if (!body.marca || !modelo) return 'Para máquinas, marca y número de identificación son obligatorios.';
-        if (String(modelo).length > 20) return 'El número de identificación no puede tener más de 20 caracteres.';
-    } else {
-        if (!body.id_lote || !body.tipo_cafe || !body.presentacion) {
-            return 'Para café, lote, categoría y presentación son obligatorios.';
-        }
+    if (Number.isNaN(Number(precio)) || Number(precio) < 0) {
+        return 'El precio debe ser un número válido.';
+    }
+    if (Number.isNaN(Number(stock)) || Number(stock) < 0) {
+        return 'El stock debe ser un número válido.';
     }
     return null;
 }
 
+function validarDescripcion(descripcion) {
+    if (descripcion && contieneOfensivas(descripcion)) {
+        return 'La descripción contiene palabras no permitidas.';
+    }
+    return null;
+}
+
+function validarMaquina(body) {
+    const { modelo, garantia_meses } = body;
+
+    if (!body.marca || !modelo) {
+        return 'Para máquinas, marca y número de identificación son obligatorios.';
+    }
+    if (String(modelo).length > 20) {
+        return 'El número de identificación no puede tener más de 20 caracteres.';
+    }
+
+    const tieneGarantia = garantia_meses !== undefined && garantia_meses !== null && garantia_meses !== '';
+    if (tieneGarantia && (Number.isNaN(Number(garantia_meses)) || Number(garantia_meses) < 0)) {
+        return 'La garantía debe ser un número de meses válido.';
+    }
+    return null;
+}
+
+function validarCafe(body) {
+    if (!body.id_lote || !body.tipo_cafe || !body.presentacion) {
+        return 'Para café, lote, categoría y presentación son obligatorios.';
+    }
+    return null;
+}
+
+function validarProducto(body) {
+    const { precio, stock, descripcion, categoria_producto } = body;
+
+    const errorBasico = validarCamposBasicos({ nombre: body.nombre, precio, stock });
+    if (errorBasico) return errorBasico;
+
+    const errorDescripcion = validarDescripcion(descripcion);
+    if (errorDescripcion) return errorDescripcion;
+
+    if (categoria_producto === 'maquina') {
+        return validarMaquina(body);
+    }
+
+    return validarCafe(body);
+}
+
 const crearProducto = async (req, res) => {
     try {
-        const { id_lote, nombre, descripcion, tipo_cafe, presentacion, precio, stock, imagen_url, categoria_producto, marca, modelo, garantia_meses } = req.body;
+        const { id_lote, nombre, descripcion, tipo_cafe, presentacion, id_presentacion, precio, precio_mayorista, costo_unitario, stock, imagen_url, categoria_producto, marca, modelo, garantia_meses } = req.body;
 
         const errorValidacion = validarProducto(req.body);
         if (errorValidacion) return res.status(400).json({ ok: false, error: errorValidacion });
+
+        if (precio_mayorista !== undefined && precio_mayorista !== '' && precio !== undefined) {
+            const margen = await obtenerParametro('margen_minimo_mayorista_publico_pct', 30);
+            const minimoPublico = Number(precio_mayorista) * (1 + margen / 100);
+            if (Number(precio) < minimoPublico) {
+                return res.status(400).json({
+                    ok: false,
+                    error: `El precio público debe ser al menos $${Math.round(minimoPublico).toLocaleString('es-CO')} (${margen}% arriba del mayorista), para no perjudicar a los clientes mayoristas.`
+                });
+            }
+        }
 
         const yaExiste = await pool.query(
             `SELECT id_producto FROM productos WHERE lower(nombre) = lower($1)`,
@@ -366,10 +477,10 @@ const crearProducto = async (req, res) => {
 
         const result = await pool.query(`
       INSERT INTO productos (
-        id_lote, nombre, descripcion, tipo_cafe, presentacion, precio, stock, imagen_url,
-        estado, categoria_producto, marca, modelo, garantia_meses, fecha_creacion
+        id_lote, nombre, descripcion, tipo_cafe, presentacion, id_presentacion, precio, precio_mayorista, costo_unitario, stock, imagen_url,
+        estado, categoria_producto, marca, modelo, garantia_meses, creado_por, fecha_creacion
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'activo', $9, $10, $11, $12, NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'activo', $12, $13, $14, $15, $16, NOW())
       RETURNING id_producto
     `, [
             esMaquina ? null : id_lote,
@@ -377,13 +488,17 @@ const crearProducto = async (req, res) => {
             descripcion || null,
             esMaquina ? null : tipo_cafe,
             esMaquina ? null : presentacion,
+            esMaquina ? null : (id_presentacion || null),
             Number(precio),
+            precio_mayorista !== undefined && precio_mayorista !== '' ? Number(precio_mayorista) : null,
+            costo_unitario !== undefined && costo_unitario !== '' ? Number(costo_unitario) : 0,
             Number(stock),
             imagen_url || null,
             esMaquina ? 'maquina' : 'cafe',
             esMaquina ? (marca || null) : null,
             esMaquina ? (modelo || null) : null,
             garantiaFinal,
+            req.usuario.id,
         ]);
 
         res.json({ ok: true, id: result.rows[0].id_producto });
@@ -399,10 +514,21 @@ const crearProducto = async (req, res) => {
 const actualizarProducto = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id_lote, nombre, descripcion, tipo_cafe, presentacion, precio, stock, imagen_url, estado, categoria_producto, marca, modelo, garantia_meses } = req.body;
+        const { id_lote, nombre, descripcion, tipo_cafe, presentacion, id_presentacion, precio, precio_mayorista, costo_unitario, stock, imagen_url, estado, categoria_producto, marca, modelo, garantia_meses } = req.body;
 
         const errorValidacion = validarProducto(req.body);
         if (errorValidacion) return res.status(400).json({ ok: false, error: errorValidacion });
+
+        if (precio_mayorista !== undefined && precio_mayorista !== '' && precio !== undefined) {
+            const margen = await obtenerParametro('margen_minimo_mayorista_publico_pct', 30);
+            const minimoPublico = Number(precio_mayorista) * (1 + margen / 100);
+            if (Number(precio) < minimoPublico) {
+                return res.status(400).json({
+                    ok: false,
+                    error: `El precio público debe ser al menos $${Math.round(minimoPublico).toLocaleString('es-CO')} (${margen}% arriba del mayorista), para no perjudicar a los clientes mayoristas.`
+                });
+            }
+        }
 
         const esMaquina = categoria_producto === 'maquina';
 
@@ -418,15 +544,18 @@ const actualizarProducto = async (req, res) => {
           descripcion = $3,
           tipo_cafe = $4,
           presentacion = $5,
-          precio = $6,
-          stock = $7,
-          imagen_url = $8,
-          estado = $9,
-          categoria_producto = $10,
-          marca = $11,
-          modelo = $12,
-          garantia_meses = $13
-      WHERE id_producto = $14
+          id_presentacion = $6,
+          precio = $7,
+          precio_mayorista = $8,
+          costo_unitario = $9,
+          stock = $10,
+          imagen_url = $11,
+          estado = $12,
+          categoria_producto = $13,
+          marca = $14,
+          modelo = $15,
+          garantia_meses = $16
+      WHERE id_producto = $17
       RETURNING id_producto
     `, [
             esMaquina ? null : id_lote,
@@ -434,7 +563,10 @@ const actualizarProducto = async (req, res) => {
             descripcion || null,
             esMaquina ? null : tipo_cafe,
             esMaquina ? null : presentacion,
+            esMaquina ? null : (id_presentacion || null),
             Number(precio),
+            precio_mayorista !== undefined && precio_mayorista !== '' ? Number(precio_mayorista) : null,
+            costo_unitario !== undefined && costo_unitario !== '' ? Number(costo_unitario) : 0,
             Number(stock),
             imagen_url || null,
             estado || 'activo',
@@ -447,6 +579,20 @@ const actualizarProducto = async (req, res) => {
 
         if (result.rows.length === 0) {
             return res.status(404).json({ ok: false, error: 'Producto no encontrado.' });
+        }
+
+        // Si el lote ya no tiene stock en ningún producto, se marca agotado.
+        // Si vuelve a tener stock (se restableció uno agotado), vuelve a 'disponible'.
+        if (!esMaquina && id_lote) {
+            const restante = await pool.query(
+                `SELECT COALESCE(SUM(stock), 0) AS total FROM productos WHERE id_lote = $1 AND estado = 'activo'`,
+                [id_lote]
+            );
+            const nuevoEstadoLote = Number(restante.rows[0].total) <= 0 ? 'agotado' : 'disponible';
+            await pool.query(
+                `UPDATE lotes SET estado = $1 WHERE id_lote = $2 AND estado != $1`,
+                [nuevoEstadoLote, id_lote]
+            );
         }
 
         res.json({ ok: true, id: result.rows[0].id_producto });
@@ -566,7 +712,37 @@ const restablecerProducto = async (req, res) => {
     }
 };
 
+// PATCH /inventario/productos/:id/eliminar - borrado visual (estado inactivo)
+const eliminarProducto = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await pool.query(
+            `UPDATE productos SET estado = 'inactivo' WHERE id_producto = $1 RETURNING id_lote`,
+            [id]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ ok: false, error: 'Producto no encontrado.' });
+        }
+
+        const id_lote = result.rows[0].id_lote;
+        if (id_lote) {
+            const restante = await pool.query(
+                `SELECT COALESCE(SUM(stock), 0) AS total FROM productos WHERE id_lote = $1 AND estado = 'activo'`,
+                [id_lote]
+            );
+            if (Number(restante.rows[0].total) <= 0) {
+                await pool.query(`UPDATE lotes SET estado = 'agotado' WHERE id_lote = $1`, [id_lote]);
+            }
+        }
+
+        res.json({ ok: true });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ ok: false, error: error.message });
+    }
+};
+
 export {
-    getResumen, getProductos, getProductoPorId, getLotes, getCategorias, getMarcas, getSugerencias,
-    crearProducto, actualizarProducto, importarProductos, restablecerProducto
+    getResumen, getProductos, getProductoPorId, getLotes, getInventarioPorFinca, getCategorias, getMarcas, getSugerencias,
+    crearProducto, actualizarProducto, importarProductos, restablecerProducto, eliminarProducto
 };

@@ -29,9 +29,9 @@ export const crearPedido = async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    // Verificar que el cliente existe
+    // Verificar que el cliente existe y traer su tipo (define qué precio aplica)
     const clienteExiste = await client.query(
-      `SELECT id_cliente FROM clientes WHERE id_cliente = $1`,
+      `SELECT id_cliente, tipo_cliente FROM clientes WHERE id_cliente = $1`,
       [id_cliente]
     );
     console.log("Resultado cliente:", clienteExiste.rows);
@@ -44,10 +44,15 @@ export const crearPedido = async (req, res) => {
       });
     }
 
-    // Verificar que todos los productos existen y tienen stock suficiente
+    const esMayorista = clienteExiste.rows[0].tipo_cliente === 'mayorista';
+
+    // Verificar productos, stock y traer el precio real desde la BD.
+    // El precio nunca se toma del body: si el cliente lo manda, se ignora.
+    // Mayorista usa precio_mayorista (si existe); minorista siempre precio público.
+    const productosConPrecio = [];
     for (const p of productos) {
       const productoExiste = await client.query(
-        `SELECT id_producto, stock, nombre FROM productos WHERE id_producto = $1 AND estado = 'activo'`,
+        `SELECT id_producto, stock, nombre, precio, precio_mayorista FROM productos WHERE id_producto = $1 AND estado = 'activo'`,
         [p.id_producto]
       );
 
@@ -59,18 +64,21 @@ export const crearPedido = async (req, res) => {
         });
       }
 
-      const stockDisponible = productoExiste.rows[0].stock;
+      const { stock: stockDisponible, nombre, precio, precio_mayorista } = productoExiste.rows[0];
       if (stockDisponible < p.cantidad) {
         await client.query("ROLLBACK");
         return res.status(400).json({
           ok: false,
-          mensaje: `Stock insuficiente para "${productoExiste.rows[0].nombre}". Disponible: ${stockDisponible}`
+          mensaje: `Stock insuficiente para "${nombre}". Disponible: ${stockDisponible}`
         });
       }
+
+      const precioAplicable = esMayorista && precio_mayorista != null ? Number(precio_mayorista) : Number(precio);
+      productosConPrecio.push({ ...p, precio_unitario: precioAplicable });
     }
 
-    // Calcular total
-    const total = productos.reduce(
+    // Calcular total con el precio real, no el que mandó el cliente
+    const total = productosConPrecio.reduce(
       (acumulado, p) => acumulado + p.precio_unitario * p.cantidad,
       0
     );
@@ -86,7 +94,7 @@ export const crearPedido = async (req, res) => {
     const id_pedido = resultadoPedido.rows[0].id_pedido;
 
     // Insertar detalle y descontar stock
-    for (const p of productos) {
+    for (const p of productosConPrecio) {
       const subtotal = p.precio_unitario * p.cantidad;
 
       await client.query(
@@ -159,6 +167,15 @@ export const obtenerPedido = async (req, res) => {
       });
     }
 
+    const esAdmin = !!req.usuario?.rol;
+    const esDueno = req.usuario?.id === pedido.rows[0].id_cliente;
+    if (!esAdmin && !esDueno) {
+      return res.status(403).json({
+        ok: false,
+        mensaje: "No tienes permiso para ver este pedido"
+      });
+    }
+
       const detalle = await pool.query(
         `SELECT 
           dp.*,
@@ -195,6 +212,15 @@ export const obtenerPedidosCliente = async (req, res) => {
     return res.status(400).json({
       ok: false,
       mensaje: "El id del cliente debe ser un número"
+    })
+  }
+
+  const esAdmin = !!req.usuario?.rol;
+  const esDueno = req.usuario?.id === Number(id_cliente);
+  if (!esAdmin && !esDueno) {
+    return res.status(403).json({
+      ok: false,
+      mensaje: "No tienes permiso para ver estos pedidos"
     })
   }
 

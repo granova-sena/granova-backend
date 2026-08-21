@@ -57,21 +57,44 @@ const getResumen = async (req, res) => {
       LIMIT 3
     `);
 
-    const recientes = await pool.query(`
-      SELECT c.nombre, c.apellido, c.email, p.total, p.estado, dp1.producto_nombre
-      FROM pedidos p
-      JOIN clientes c ON c.id_cliente = p.id_cliente
-      LEFT JOIN LATERAL (
-        SELECT pr.nombre AS producto_nombre
-        FROM detalle_pedidos dp
-        JOIN productos pr ON pr.id_producto = dp.id_producto
-        WHERE dp.id_pedido = p.id_pedido
-        ORDER BY dp.id_detalle
-        LIMIT 1
-      ) dp1 ON true
-      ORDER BY p.fecha_pedido DESC
-      LIMIT 5
+    // Rentabilidad del mes: ingresos reales (sin pedidos rechazados/cancelados),
+    // costo de lo vendido calculado con lo que de verdad se le pagó a la
+    // finca por cada lote (no un costo_unitario digitado a mano), y valor
+    // de lo perdido usando lotes.kg_perdido con ese mismo costo real.
+    const rentabilidad = await pool.query(`
+      WITH costo_lote AS (
+        SELECT id_lote, SUM(valor) / NULLIF(SUM(kg_netos), 0) AS costo_kg
+        FROM entregas_finca WHERE estado = 'registrada' GROUP BY id_lote
+      )
+      SELECT
+        COALESCE((
+          SELECT SUM(p.total) FROM pedidos p
+          WHERE lower(p.estado) NOT IN ('cancelado', 'rechazado')
+            AND date_trunc('month', p.fecha_pedido) = date_trunc('month', CURRENT_DATE)
+        ), 0) AS ingresos,
+        COALESCE((
+          SELECT SUM(dp.cantidad * COALESCE(cl.costo_kg, pr.costo_unitario, 0))
+          FROM detalle_pedidos dp
+          JOIN pedidos p ON p.id_pedido = dp.id_pedido
+          JOIN productos pr ON pr.id_producto = dp.id_producto
+          LEFT JOIN costo_lote cl ON cl.id_lote = pr.id_lote
+          WHERE lower(p.estado) NOT IN ('cancelado', 'rechazado')
+            AND date_trunc('month', p.fecha_pedido) = date_trunc('month', CURRENT_DATE)
+        ), 0) AS costo_vendido,
+        COALESCE((
+          SELECT SUM(l.kg_perdido * COALESCE(cl.costo_kg, 0))
+          FROM lotes l
+          LEFT JOIN costo_lote cl ON cl.id_lote = l.id_lote
+          WHERE l.kg_perdido > 0
+        ), 0) AS valor_perdido,
+        COALESCE((SELECT SUM(kg_perdido) FROM lotes), 0) AS kg_perdidos
     `);
+
+    const ingresosMes = Number(rentabilidad.rows[0].ingresos);
+    const costoVendidoMes = Number(rentabilidad.rows[0].costo_vendido);
+    const valorPerdidoMes = Number(rentabilidad.rows[0].valor_perdido);
+    const gananciaNeta = ingresosMes - costoVendidoMes - valorPerdidoMes;
+    const margenPct = ingresosMes > 0 ? Math.round((gananciaNeta / ingresosMes) * 1000) / 10 : 0;
 
     res.json({
       ok: true,
@@ -84,6 +107,15 @@ const getResumen = async (req, res) => {
         clientesNuevos: Number(clientesNuevos.rows[0].total),
         facturasEmitidas: Number(facturas.rows[0].total)
       },
+      rentabilidad: {
+        ingresos: ingresosMes,
+        costoVendido: costoVendidoMes,
+        valorPerdido: valorPerdidoMes,
+        kgPerdidos: Number(rentabilidad.rows[0].kg_perdidos),
+        gananciaNeta,
+        margenPct,
+        rentable: gananciaNeta > 0
+      },
       ventasMensuales: grafica.rows.map(r => ({
         mes: MESES[r.mes_num - 1],
         total: Number(r.total)
@@ -94,13 +126,6 @@ const getResumen = async (req, res) => {
         imagen: r.imagen_url,
         vendidos: Number(r.vendidos),
         total: Number(r.total)
-      })),
-      clientesRecientes: recientes.rows.map(r => ({
-        nombre: `${r.nombre} ${r.apellido}`,
-        email: r.email,
-        producto: r.producto_nombre,
-        total: Number(r.total),
-        estado: r.estado
       }))
     });
 

@@ -12,12 +12,14 @@ import usuariosRoutes  from "./routes/usuariosRoutes.js"
 import asistenteRoutes from "./routes/asistenteRoutes.js"
 import fincasRoutes    from "./routes/fincasRoutes.js"
 import preferenciasRoutes from "./routes/preferenciasRoutes.js"
+import clientesRoutes  from "./routes/clientesRoutes.js"
 
 // Rutas tuyas
 import productosRoutes from "./routes/productosRoutes.js"
 import pedidosRoutes   from "./routes/pedidosRoutes.js"
 import facturasRoutes  from "./routes/facturasRoutes.js"
 import correoRoutes    from "./routes/correoRoutes.js"
+import lotesRoutes     from "./routes/lotesRoutes.js"
 
 // Rutas admin (Daniel)
 import dashboardRoutes    from "./routes/admin/dashboardRoutes.js"
@@ -27,12 +29,23 @@ import alertasAdminRoutes from "./routes/admin/alertasRoutes.js"
 import pedidosAdminRoutes from "./routes/admin/pedidosRoutes.js"
 import usuariosAdminRoutes from "./routes/admin/usuariosRoutes.js"
 import reportesRoutes from "./routes/admin/reportes.js"
+import empleadosRoutes from "./routes/admin/empleadosRoutes.js"
 
 const app    = express()
 const puerto = process.env.PORT || 3000
 
 app.set('trust proxy', 1)
-app.use(cors())
+const origenesPermitidos = [
+  'http://localhost:5173',
+  'https://granova-frontend.vercel.app'
+];
+
+app.use(cors({
+  origin: origenesPermitidos,
+  credentials: true
+}));
+
+app.disable('x-powered-by')
 app.use(express.json())
 
 // Rutas cliente
@@ -42,7 +55,9 @@ app.use("/asistente", asistenteRoutes)
 app.use("/fincas",    fincasRoutes)
 app.use("/productos", productosRoutes)
 app.use("/pedidos",   pedidosRoutes)
+app.use("/lotes",     lotesRoutes)
 app.use("/api/preferencias", preferenciasRoutes)
+app.use("/api/clientes",   clientesRoutes)
 
 
 // Rutas tuyas con prefijo /api
@@ -59,6 +74,7 @@ app.use("/api/alertas",    alertasAdminRoutes)
 app.use("/api/admin/pedidos", pedidosAdminRoutes)
 app.use("/api/usuarios",   usuariosAdminRoutes)
 app.use("/api/reportes",   reportesRoutes)
+app.use("/api/empleados",  empleadosRoutes)
 
 
 app.get("/", (req, res) => {
