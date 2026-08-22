@@ -130,7 +130,7 @@ export async function register(req, res) {
             `INSERT INTO clientes (nombre, apellido, email, contraseña, token_verificacion, token_verificacion_expiracion, ultimo_envio_verificacion,
                                    tipo_persona, tipo_documento, numero_documento, digito_verificacion, razon_social, tipo_cliente)
              VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8, $9, $10, $11, $12)
-             RETURNING id_cliente, nombre, email`,
+             RETURNING id_cliente, nombre, email, fecha_creacion`,
             [nombre, apellido, email, contraseñaHash, tokenVerificacion, expiracionVerificacion,
              tipoPersona, tipo_documento, numero_documento.trim(), digito_verificacion || null, razon_social || null, tipoCliente]
         )
@@ -220,6 +220,7 @@ export async function login(req, res) {
                 digito_verificacion: cliente.digito_verificacion,
                 razon_social: cliente.razon_social,
                 tipo_cliente: cliente.tipo_cliente,
+                fecha_creacion: cliente.fecha_creacion,
             },
         })
 
@@ -403,6 +404,7 @@ export async function googleCallback(req, res) {
             foto: payload.picture,
             tipo_persona: cliente.tipo_persona,
             tipo_cliente: cliente.tipo_cliente,
+            fecha_creacion: cliente.fecha_creacion,
         }))
 
         // El token va en la URL (no en cookie httpOnly): AuthCallback corre en el

@@ -105,14 +105,16 @@ export const obtenerRecomendaciones = async (req, res) => {
     const rango = presupuestoRango[presupuesto] || { min: 0, max: 999999999 }
 
     const productos = await pool.query(
-      `SELECT * FROM productos 
-       WHERE estado = 'activo'
-       AND stock > 0
-       AND precio BETWEEN $1 AND $2
-       ORDER BY 
-         CASE WHEN tipo_cafe = ANY($3::text[]) THEN 0 ELSE 1 END,
-         stock DESC
-       LIMIT 6`,
+      `(SELECT * FROM productos 
+        WHERE estado = 'activo' AND stock > 0 AND categoria_producto = 'cafe'
+          AND precio BETWEEN $1 AND $2
+        ORDER BY CASE WHEN tipo_cafe = ANY($3::text[]) THEN 0 ELSE 1 END, stock DESC
+        LIMIT 4)
+       UNION ALL
+       (SELECT * FROM productos 
+        WHERE estado = 'activo' AND stock > 0 AND categoria_producto = 'maquina'
+        ORDER BY stock DESC
+        LIMIT 2)`,
       [rango.min, rango.max, tipos]
     )
 
