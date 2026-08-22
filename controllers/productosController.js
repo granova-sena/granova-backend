@@ -28,8 +28,18 @@ export const obtenerProductos = async (req, res) => {
           FROM formatos_producto f
           WHERE f.id_producto = p.id_producto AND f.activo = true),
           '[]'
-        ) AS formatos
+        ) AS formatos,
+        CASE WHEN pr.id_promocion IS NOT NULL THEN json_build_object(
+          'id_promocion', pr.id_promocion,
+          'nombre',       pr.nombre,
+          'descuento_pct', pr.valor_descuento,
+          'fecha_fin',    pr.fecha_fin
+        ) ELSE NULL END AS promo
       FROM productos p
+      LEFT JOIN promocion_productos pp ON pp.id_producto = p.id_producto
+      LEFT JOIN promociones pr ON pr.id_promocion = pp.id_promocion
+        AND pr.estado = 'activa'
+        AND (pr.fecha_fin IS NULL OR pr.fecha_fin >= CURRENT_DATE)
       WHERE p.estado = 'activo'
       ORDER BY p.nombre ASC
     `)
