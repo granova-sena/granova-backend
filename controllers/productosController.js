@@ -17,6 +17,7 @@ export const obtenerProductos = async (req, res) => {
         p.estado,
         p.fecha_creacion,
         p.categoria_producto,
+        p.iva_pct,
         COALESCE(
           (SELECT json_agg(json_build_object(
             'id_formato', f.id_formato,

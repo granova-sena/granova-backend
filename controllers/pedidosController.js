@@ -5,7 +5,7 @@ import pool from "../config/db.js";
 // ─────────────────────────────────────────
 export const crearPedido = async (req, res) => {
 
-  const { id_cliente, metodo_pago, direccion_envio, ciudad_envio, productos } = req.body;
+  const { id_cliente, metodo_pago, direccion_envio, ciudad_envio, productos, codigo_cupon } = req.body;
 
   // Validación de campos obligatorios
   if (!id_cliente || !metodo_pago || !direccion_envio || !ciudad_envio || !productos?.length) {
@@ -24,6 +24,16 @@ export const crearPedido = async (req, res) => {
     });
   }
 
+  // Validar cada producto antes de tocar la BD
+  for (const p of productos) {
+    if (!p.id_producto || !Number.isInteger(Number(p.cantidad)) || Number(p.cantidad) <= 0) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: `Producto con id ${p.id_producto || '?'} tiene cantidad inválida: ${p.cantidad}`
+      });
+    }
+  }
+
   const client = await pool.connect();
 
   try {
@@ -34,7 +44,6 @@ export const crearPedido = async (req, res) => {
       `SELECT id_cliente, tipo_cliente FROM clientes WHERE id_cliente = $1`,
       [id_cliente]
     );
-    console.log("Resultado cliente:", clienteExiste.rows);
 
     if (clienteExiste.rows.length === 0) {
       await client.query("ROLLBACK");
@@ -65,7 +74,8 @@ export const crearPedido = async (req, res) => {
       }
 
       const { stock: stockDisponible, nombre, precio, precio_mayorista } = productoExiste.rows[0];
-      if (stockDisponible < p.cantidad) {
+      const cantidad = Math.floor(Number(p.cantidad));
+      if (stockDisponible < cantidad) {
         await client.query("ROLLBACK");
         return res.status(400).json({
           ok: false,
@@ -74,21 +84,49 @@ export const crearPedido = async (req, res) => {
       }
 
       const precioAplicable = esMayorista && precio_mayorista != null ? Number(precio_mayorista) : Number(precio);
-      productosConPrecio.push({ ...p, precio_unitario: precioAplicable });
+      productosConPrecio.push({ ...p, precio_unitario: precioAplicable, cantidad });
     }
 
-    // Calcular total con el precio real, no el que mandó el cliente
-    const total = productosConPrecio.reduce(
-      (acumulado, p) => acumulado + p.precio_unitario * p.cantidad,
+    // ── Cupón: validar, bloquear, calcular descuento ──
+    let cupon = null;
+    let descuentoCuponMonto = 0;
+    if (codigo_cupon && String(codigo_cupon).trim()) {
+      const r = await client.query(
+        `SELECT id_cupon, codigo, descuento_pct FROM cupones
+         WHERE UPPER(codigo) = UPPER($1) AND id_cliente = $2 AND usado = false
+           AND fecha_vencimiento > CURRENT_DATE
+         FOR UPDATE`,
+        [String(codigo_cupon).trim(), id_cliente]
+      );
+      if (r.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          ok: false,
+          mensaje: "Cupón inválido, vencido o ya utilizado"
+        });
+      }
+      cupon = r.rows[0];
+    }
+
+    // Calcular subtotal con precio real (sin cupón — el cupón es adicional)
+    const subtotalSinCupon = productosConPrecio.reduce(
+      (acc, p) => acc + p.precio_unitario * p.cantidad,
       0
     );
 
-    // Insertar pedido principal
+    // Aplicar cupón sobre el subtotal
+    if (cupon) {
+      descuentoCuponMonto = Math.round(subtotalSinCupon * Number(cupon.descuento_pct) / 100);
+    }
+
+    const total = subtotalSinCupon - descuentoCuponMonto;
+
+    // Insertar pedido principal (con código_cupon para auditoría)
     const resultadoPedido = await client.query(
-      `INSERT INTO pedidos (id_cliente, metodo_pago, direccion_envio, ciudad_envio, total)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO pedidos (id_cliente, metodo_pago, direccion_envio, ciudad_envio, total, descuento, codigo_cupon)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id_pedido`,
-      [id_cliente, metodo_pago, direccion_envio, ciudad_envio, total]
+      [id_cliente, metodo_pago, direccion_envio, ciudad_envio, total, descuentoCuponMonto, cupon ? cupon.codigo : null]
     );
 
     const id_pedido = resultadoPedido.rows[0].id_pedido;
@@ -111,11 +149,26 @@ export const crearPedido = async (req, res) => {
       );
     }
 
+    // Marcar cupón como usado
+    if (cupon) {
+      await client.query(
+        `UPDATE cupones SET usado = true WHERE id_cupon = $1`,
+        [cupon.id_cupon]
+      );
+    }
+
     await client.query("COMMIT");
 
     res.status(201).json({
       ok: true,
-      data: { id_pedido },
+      data: {
+        id_pedido,
+        ...(cupon && {
+          descuento_aplicado: descuentoCuponMonto,
+          descuento_fuente: 'cupon',
+          codigo_cupon: cupon.codigo,
+        }),
+      },
       mensaje: "Pedido creado exitosamente"
     });
 

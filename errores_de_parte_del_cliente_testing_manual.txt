@@ -1,0 +1,15 @@
+El miembro desde - , no aparece en produccion
+Aparece error al actualizar el cliente, no se actualiza cuando pongo mi numero de cedula
+Cuando filtro por cafe, y dejo seleccionado, por ejemplo grano y stock y me voy a maquinas no aparecen las maquinas aparecen 0 productos
+no hay como una simulacion de busqueda, cuando le doy enter a lo que quiero buscar en la barra de busqueda normal, no la de control k
+los filtros estan fallando pq si filtro en maquinas y vuelvo a los cafes no aparecen y biseversa
+cuando le doy control k y busco por ejemplo cafe sin tilde, me aparcen las cafeteras, pero si quiero buscar cafe osea las bolsas de cafe, tengo que si o si poner é , por que haci esta escrito y no deberia de obligar al cliente a escribir bien si escribe cafe le puede aparecer cafe o cafetera segun lo que escriba sin importar las tildes
+el boton de no sabes que elegir, solo filtra los cafes y las maquinas se quedan por fuera, como si no le ayudaramos a escoger al cliente una maquina para comprar segun su presupuesto
+en recomendados para ti cuando filtra y aparecen los productos el boton Ver todos, no esta funcionando
+en las ofertas,populares,nuevos, no hay un boton para añadir al carrito ni tampoco un boton de ver detalle osea, el cliente que va a saber que le tiene que dar click a la tarjeta, y no solo en esos filtros si no en todos los productos no hay un boton que diga "ver detalle"
+en el boton calcular si yo escribo por ejemplo 10000000000000, esa cosa se cae literalmente, deberia haber un limite por que ese espacio tan pequeño no creo que sea agrable y se veo cuando escribi por ejemplo 10000000000000 , eso sobresalio del calcular, entonces nose si aplicamos otra vista para culcar, o que solunamos hayi
+las ofertas no c estan aplicando cuando agrego al carrito, por ejemplo yo agregue un producto que esta en oferta de 42.000, y lo agrego y me aparece en lo que estaba normalmente en 52.000 entonces no esta funcionando por que en el carrito aparece 52.000
+y en configurar pedido, me estan cobrando mas, ahora son 61.000 que eso es lo del iva y ni si quiera se ve el descuento del producto que esta en oferta
+tampoco se estan aplicando los descuentos cuando agrego un cupon, y eso es fatal pq si el cliente reclamo un cupon de 5% menos y lo pongo en configurar pedidio, y no me aplica ese descuento esta mal, super mal
+aparece error interno al crear el pedido, cuando lo voy a confirmar
+aparece que no hay eventos registrado cuando voy a la trazabilidad de un producto, como si no estubiera agarrando el lote o nose
