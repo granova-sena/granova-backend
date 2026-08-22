@@ -651,6 +651,7 @@ export async function googleOneTap(req, res) {
                 digito_verificacion: cliente.digito_verificacion,
                 razon_social: cliente.razon_social,
                 tipo_cliente: cliente.tipo_cliente,
+                fecha_creacion: cliente.fecha_creacion,
             },
         })
     } catch (error) {
