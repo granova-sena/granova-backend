@@ -120,8 +120,18 @@ export const actualizarCliente = async (req, res) => {
 
     res.status(200).json({ ok: true, data: resultado.rows[0], mensaje: "Perfil actualizado correctamente" });
   } catch (error) {
-    if (error.code === "23505" && error.constraint && error.constraint.includes("numero_documento")) {
-      return res.status(400).json({ ok: false, mensaje: "Ese documento ya está registrado" });
+    if (error.code === "23505") {
+      const campo = error.constraint || "";
+      if (campo.includes("numero_documento")) {
+        return res.status(400).json({ ok: false, mensaje: "Ese número de documento ya está registrado por otro cliente" });
+      }
+      return res.status(400).json({ ok: false, mensaje: "Ya existe un registro con esos datos" });
+    }
+    if (error.code === "23502") {
+      return res.status(400).json({ ok: false, mensaje: `Falta un campo obligatorio: ${error.column || 'desconocido'}` });
+    }
+    if (error.code === "22P02") {
+      return res.status(400).json({ ok: false, mensaje: "Formato de dato inválido en uno de los campos" });
     }
     console.error("Error actualizando cliente:", error.message);
     res.status(500).json({ ok: false, mensaje: "Error interno al actualizar el cliente" });
