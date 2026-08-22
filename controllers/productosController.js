@@ -5,25 +5,43 @@ export const obtenerProductos = async (req, res) => {
   try {
     const resultado = await pool.query(`
       SELECT 
-        id_producto,
-        nombre,
-        descripcion,
-        tipo_cafe,
-        presentacion,
-        precio,
-        precio_mayorista,
-        stock,
-        imagen_url,
-        estado,
-        fecha_creacion
-      FROM productos
-      WHERE estado = 'activo'
-      ORDER BY nombre ASC
+        p.id_producto,
+        p.nombre,
+        p.descripcion,
+        p.tipo_cafe,
+        p.presentacion,
+        p.precio,
+        p.precio_mayorista,
+        p.stock,
+        p.imagen_url,
+        p.estado,
+        p.fecha_creacion,
+        p.categoria_producto,
+        COALESCE(
+          (SELECT json_agg(json_build_object(
+            'id_formato', f.id_formato,
+            'etiqueta',   f.etiqueta,
+            'peso_kg',    f.peso_kg,
+            'precio',     f.precio,
+            'imagen_url', f.imagen_url
+          ) ORDER BY f.peso_kg)
+          FROM formatos_producto f
+          WHERE f.id_producto = p.id_producto AND f.activo = true),
+          '[]'
+        ) AS formatos
+      FROM productos p
+      WHERE p.estado = 'activo'
+      ORDER BY p.nombre ASC
     `)
 
+    const descuentos = await pool.query(
+      'SELECT kg_min, kg_max, descuento_pct FROM descuentos_volumen WHERE activo = true ORDER BY kg_min'
+    )
+
     res.status(200).json({
-      ok:   true,
-      data: resultado.rows
+      ok:               true,
+      data:             resultado.rows,
+      descuentosVolumen: descuentos.rows
     })
 
   } catch (error) {
