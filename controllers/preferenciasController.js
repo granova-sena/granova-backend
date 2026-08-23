@@ -113,6 +113,7 @@ export const obtenerRecomendaciones = async (req, res) => {
        UNION ALL
        (SELECT * FROM productos 
         WHERE estado = 'activo' AND stock > 0 AND categoria_producto = 'maquina'
+          AND precio BETWEEN $1 AND $2
         ORDER BY stock DESC
         LIMIT 2)`,
       [rango.min, rango.max, tipos]
