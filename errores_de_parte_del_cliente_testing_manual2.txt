@@ -1,32 +1,25 @@
-El miembro desde - , no aparece en produccion (esta bien,pero solo esta apareciendo cuando yo reinicio la pagina despues si me salgo o voy a otro lugar que no sea "mi cuenta", se quita la fecha de "miemnbro desde")
-cuando por ejemplo agrego un produto que esta en oferta por ejemplo en un 15%, y soy una empresa, veo que no se me esta aplicando el 10 %, por ejemplo el producto,Café Bourbon Rosado - Finca El Vergel
-Café Bourbon Rosado - que esta a 15% en ofertas y esta en 44.200, pero y entonces no se le esta aplicando el 10% mas que tienen las empresas o tu crees que es mejor que a los productos que estan en ofertas a las empresas no darles el 10%,por que ya en si ya tiene oferta y mas el 10% que siempre tienen las empresas esos quedaria en 25& de golpe y siempre van a ver artas ofertas
-en el carrito sigue apareciendo el valor normal sin la oferta, pero en configuracion de pedido si me aparece el valor con oferta hay un enredo hayi
-aparece error interno al crear el pedido, cuando lo voy a confirmar
+cuando se me acomulan 52 puntos por haber echo una compra siendo un persona juridica, no veo cambio en mi cuenta aparece esto 🥉
+0
+puntos
+Nivel Bronce
 
+Faltan 1.000 pts para el siguiente nivel
 
-Subtotal
-$52.000
-🏢 Descuento empresa 10%
-−$7.800
-Envío
-Gratis
-Total
-$44.200
-
-mira nomas estos valores cuando veo el carrito, cuando agregue un producto que estaba en oferta, al 15%, este fue el resumen que se me mostro, pero no veo en ningun lado el 15% que estaba en oferta ese producto
-
+🏢 Tu descuento de empresa (10%) ya supera los cupones de lealtad — tus puntos se siguen acumulando para tu rango."
 ✅
-¡Pedido confirmado!
-Tu pedido ha sido recibido. Te enviaremos un correo con los detalles.
+y no se acomulan a las personas tipo juridicas
 
 
 
-mira ni si quiera se me mostraron los puntos,que gane
 
 
-Tipo de documento inválido. Opciones: CC, CE, NIT, PASAPORTE
 
-aparece este error al registrar a la persona en el paso 3, cuando ni si quiera le pedimos esos datos
 
-Unexpected token '<', "<!DOCTYPE "... is not valid JSON, Aparece este error al escribir una reseña
+Unexpected token '<', "<!DOCTYPE "... is not valid JSON, Aparece este error al escribir una reseña (Sigue apareciendo el error)
+accounts.google.com/gsi/status?client_id=419932529874-puo0nhds5q98q1f7503nv75pkkf22u34.apps.googleusercontent.com&cas=Wjy4N2n1M27MtPRyH8dAp3NwxvQh8DUhynBm7k0vjwQ&bs=QybyZyVdEZyYlyPfcJlJ3eMwsO6NjesTnu8H0dfqjL8:1  Failed to load resource: the server responded with a status of 403 ()
+:5173/:1 FedCM was disabled either temporarily based on previous user action or permanently via site settings. Try manage third-party sign-in via the icon to the left of the URL bar or via site settings.
+client:88 [GSI_LOGGER]: FedCM get() rejects with AbortError: signal is aborted without reason
+_.H @ client:88
+:3000/resenas:1  Failed to load resource: the server responded with a status of 404 (Not Found)
+
+tambien quiero saber si los clientes que se registran, solo se guardan en la base de datos cuando verifican el correo
