@@ -1,2 +1,3 @@
-falta el boton "ver detalles" en todos los productos en ves de depender que el cliente le de click a la card
-en la factura cuando se descarga en la parte de "mis pedidos" se ve un precio diferente al que en realidad pague en configuracion de pedido" por ejemplo pague uno de 88.400 que estaba en oferta, pero en la factura aparece 104.000 incluyendo el iva nose si es un error o que esta sucendiendo con esa logica, Basicamente los precios no estan coincidiendo tanto en la factura como en la configuracion de pago
+falta los botones "ver detalle" en las vista de los productos en oferta,populares,nuevos"
+apericio bien el precio con descuento, pero en la parte de la factura aparece el iva, cuando en realidad ese fue el descuento, no iva 
+las empresas no deben de pq poder cambiar su rol a persona natural, ya que de por si siempre van a ser personas juridicas, y lo mismo biceversa con una persona natural, lo unico que pueden hacer el actuliazar sus datos que son los que deben de tener cada uno

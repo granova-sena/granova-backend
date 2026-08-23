@@ -37,6 +37,7 @@ export const obtenerFacturaCompleta = (id_pedido) =>
        p.metodo_pago,
        p.direccion_envio,
        p.ciudad_envio,
+       p.descuento     AS descuento_pedido,
        p.estado        AS estado_pedido,
        c.nombre        AS nombre_cliente,
        c.apellido      AS apellido_cliente,
@@ -55,7 +56,8 @@ export const obtenerProductosDePedido = (id_pedido) =>
        dp.precio_unitario,
        dp.subtotal,
        pr.nombre       AS producto_nombre,
-       pr.presentacion AS producto_presentacion
+       pr.presentacion AS producto_presentacion,
+       pr.precio       AS precio_original
      FROM detalle_pedidos dp
      JOIN productos pr ON dp.id_producto = pr.id_producto
      WHERE dp.id_pedido = $1`,

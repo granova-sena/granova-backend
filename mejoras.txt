@@ -5,7 +5,7 @@ en las ofertas,populares,nuevos, no hay un boton para añadir al carrito ni tamp
 en el boton calcular si yo escribo por ejemplo 10000000000000, esa cosa se cae literalmente, deberia haber un limite por que ese espacio tan pequeño no creo que sea agrable y se veo cuando escribi por ejemplo 10000000000000 , eso sobresalio del calcular, entonces nose si aplicamos otra vista para culcar, o que solunamos hayi (funciona bien, pero podriamos innovar a otra cosa)
 cuando se me acomulan 52 puntos por haber echo una compra siendo un persona juridica, no veo cambio en mi cuenta aparece esto 🥉
 quiero por ejemplo,si al cliente se le acomulan muchos pedidos, no crees que es mejor nose,que sea tipo un historia por paginas,o no se, por que por ejemplo el usuario tiene 50 pedidos pendientes y en la parte de pedidos esa fila se haria muy larga ya que serian muchos pedidos del lado de ese cliente
-
+quiero cambiar el lugar de favoritos a que este en el menu cuando le da click al perfil, osea debajo de "Mi cuenta", que diga un apartado de favoritos"
 0
 puntos
 Nivel Bronce

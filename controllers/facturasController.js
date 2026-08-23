@@ -134,10 +134,21 @@ export const obtenerFactura = async (req,res) =>{
         const consultaProductos = await obtenerProductosDePedido(id_pedido);
         const productosDelPedido = consultaProductos.rows;
 
+        // Calcular descuento total: diferencia entre precio original y precio pagado
+        const descuentoProductos = productosDelPedido.reduce((acc, p) => {
+          const precioOriginal = Number(p.precio_original) || 0;
+          const precioPagado = Number(p.precio_unitario) || 0;
+          const cantidad = Number(p.cantidad) || 0;
+          return acc + (precioOriginal - precioPagado) * cantidad;
+        }, 0);
+        const descuentoCupon = Number(facturaEncontrada.descuento_pedido) || 0;
+        const descuentoTotal = Math.round(descuentoProductos + descuentoCupon);
+
         return res.status(200).json({
             ok:     true,
             data: {
                 ...facturaEncontrada,
+                descuento: descuentoTotal,
                 productos: productosDelPedido,
             },
         });
