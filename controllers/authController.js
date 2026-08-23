@@ -66,10 +66,12 @@ export async function register(req, res) {
             return res.status(400).json({ error: "Todos los campos son obligatorios" })
         }
 
-        // Valores por defecto: los registros por Google no envían estos campos
-        // y caen en "natural / minorista" como pide la especificación.
+        // Valores por defecto: el registro solo pide nombre, email y contraseña.
+        // Los campos de documento se completan después en "Mi Cuenta".
         const tipoPersona = tipo_persona || "natural"
         const tipoCliente = tipo_cliente || "minorista"
+        const tipoDoc = tipo_documento || "CC"
+        const numDoc = numero_documento || null
 
         if (!TIPOS_PERSONA.includes(tipoPersona)) {
             return res.status(400).json({ error: "Tipo de persona inválido. Opciones: natural, juridica" })
@@ -79,19 +81,17 @@ export async function register(req, res) {
             return res.status(400).json({ error: "Tipo de cliente inválido. Opciones: minorista, mayorista" })
         }
 
-        if (!tipo_documento || !TIPOS_DOCUMENTO.includes(tipo_documento)) {
+        // tipo_documento y numero_documento son opcionales en el registro.
+        // Si se envían, se validan; si no, se usa 'CC' y null por defecto.
+        if (tipo_documento && !TIPOS_DOCUMENTO.includes(tipoDoc)) {
             return res.status(400).json({ error: "Tipo de documento inválido. Opciones: CC, CE, NIT, PASAPORTE" })
-        }
-
-        if (!numero_documento || !numero_documento.trim()) {
-            return res.status(400).json({ error: "El número de documento es obligatorio" })
         }
 
         // Reglas por tipo de persona:
         // - Jurídica: el documento debe ser NIT, y exige razón social y dígito de verificación.
         // - Natural: el documento NO puede ser NIT, y no lleva razón social.
         if (tipoPersona === "juridica") {
-            if (tipo_documento !== "NIT") {
+            if (tipoDoc !== "NIT") {
                 return res.status(400).json({ error: "Una persona jurídica debe registrarse con NIT" })
             }
             if (!razon_social || !razon_social.trim()) {
@@ -101,7 +101,7 @@ export async function register(req, res) {
                 return res.status(400).json({ error: "El dígito de verificación del NIT es obligatorio" })
             }
         } else {
-            if (tipo_documento === "NIT") {
+            if (tipoDoc === "NIT") {
                 return res.status(400).json({ error: "Una persona natural no puede registrarse con NIT" })
             }
         }
@@ -132,7 +132,7 @@ export async function register(req, res) {
              VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8, $9, $10, $11, $12)
              RETURNING id_cliente, nombre, email, fecha_creacion`,
             [nombre, apellido, email, contraseñaHash, tokenVerificacion, expiracionVerificacion,
-             tipoPersona, tipo_documento, numero_documento.trim(), digito_verificacion || null, razon_social || null, tipoCliente]
+             tipoPersona, tipoDoc, numDoc, digito_verificacion || null, razon_social || null, tipoCliente]
         )
 
         const cliente = resultado.rows[0]

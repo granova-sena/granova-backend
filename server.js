@@ -22,6 +22,7 @@ import pedidosRoutes   from "./routes/pedidosRoutes.js"
 import facturasRoutes  from "./routes/facturasRoutes.js"
 import correoRoutes    from "./routes/correoRoutes.js"
 import lotesRoutes     from "./routes/lotesRoutes.js"
+import resenasRoutes   from "./routes/resenasRoutes.js"
 
 // Rutas admin (Daniel)
 import dashboardRoutes    from "./routes/admin/dashboardRoutes.js"
@@ -70,6 +71,7 @@ app.use("/api/productos", productosRoutes)
 app.use("/api/pedidos",   pedidosRoutes)
 app.use("/api/facturas",  facturasRoutes)
 app.use("/api/correo",    correoRoutes)
+app.use("/api/resenas",   resenasRoutes)
 
 // Rutas admin
 app.use("/api/dashboard", dashboardRoutes)

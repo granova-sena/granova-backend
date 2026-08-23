@@ -159,10 +159,20 @@ export const crearPedido = async (req, res) => {
 
     await client.query("COMMIT");
 
+    // ── Puntos de lealtad: 1 punto por cada $1.000 pagados ──
+    const puntosGanados = Math.floor(total / 1000);
+    if (puntosGanados > 0) {
+      await pool.query(
+        `UPDATE clientes SET puntos = puntos + $1 WHERE id_cliente = $2`,
+        [puntosGanados, id_cliente]
+      );
+    }
+
     res.status(201).json({
       ok: true,
       data: {
         id_pedido,
+        puntos_ganados: puntosGanados,
         ...(cupon && {
           descuento_aplicado: descuentoCuponMonto,
           descuento_fuente: 'cupon',

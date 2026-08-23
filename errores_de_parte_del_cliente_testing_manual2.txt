@@ -1,12 +1,32 @@
-El miembro desde - , no aparece en produccion
-Aparece error al actualizar el cliente, no se actualiza cuando pongo mi numero de cedula
+El miembro desde - , no aparece en produccion (esta bien,pero solo esta apareciendo cuando yo reinicio la pagina despues si me salgo o voy a otro lugar que no sea "mi cuenta", se quita la fecha de "miemnbro desde")
+cuando por ejemplo agrego un produto que esta en oferta por ejemplo en un 15%, y soy una empresa, veo que no se me esta aplicando el 10 %, por ejemplo el producto,Café Bourbon Rosado - Finca El Vergel
+Café Bourbon Rosado - que esta a 15% en ofertas y esta en 44.200, pero y entonces no se le esta aplicando el 10% mas que tienen las empresas o tu crees que es mejor que a los productos que estan en ofertas a las empresas no darles el 10%,por que ya en si ya tiene oferta y mas el 10% que siempre tienen las empresas esos quedaria en 25& de golpe y siempre van a ver artas ofertas
 en el carrito sigue apareciendo el valor normal sin la oferta, pero en configuracion de pedido si me aparece el valor con oferta hay un enredo hayi
 aparece error interno al crear el pedido, cuando lo voy a confirmar
-IVA (incluido)
-$2105 (aparece esto y no deberia de aparecer) solo el mensajito de todos los productos contienen IVA 
 
-#Errores que aparecen en el servidor del backend a la hora de realizar el testing que basicamente son lo que aparecen arriba, pero ahora del lado del servidor para que sepas que es lo que esta fallando
-Error obteniendo cliente: column "fecha_creacion" does not exist
-Error obteniendo cliente: column "fecha_creacion" does not exist
-Error actualizando cliente: column "tipo_cliente" does not exist
-Error creando pedido: column "tipo_cliente" does not exist
+
+Subtotal
+$52.000
+🏢 Descuento empresa 10%
+−$7.800
+Envío
+Gratis
+Total
+$44.200
+
+mira nomas estos valores cuando veo el carrito, cuando agregue un producto que estaba en oferta, al 15%, este fue el resumen que se me mostro, pero no veo en ningun lado el 15% que estaba en oferta ese producto
+
+✅
+¡Pedido confirmado!
+Tu pedido ha sido recibido. Te enviaremos un correo con los detalles.
+
+
+
+mira ni si quiera se me mostraron los puntos,que gane
+
+
+Tipo de documento inválido. Opciones: CC, CE, NIT, PASAPORTE
+
+aparece este error al registrar a la persona en el paso 3, cuando ni si quiera le pedimos esos datos
+
+Unexpected token '<', "<!DOCTYPE "... is not valid JSON, Aparece este error al escribir una reseña
