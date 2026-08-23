@@ -321,25 +321,45 @@ export const obtenerPedidosCliente = async (req, res) => {
     })
   }
 
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 10));
+  const offset = (page - 1) * limit;
+
   try {
-    const resultado = await pool.query(
-      `SELECT 
-         p.id_pedido,
-         p.fecha_pedido,
-         p.estado,
-         p.metodo_pago,
-         p.direccion_envio,
-         p.ciudad_envio,
-         p.total
-       FROM pedidos p
-       WHERE p.id_cliente = $1
-       ORDER BY p.fecha_pedido DESC`,
-      [id_cliente]
-    )
+    const [resultado, total] = await Promise.all([
+      pool.query(
+        `SELECT 
+           p.id_pedido,
+           p.fecha_pedido,
+           p.estado,
+           p.metodo_pago,
+           p.direccion_envio,
+           p.ciudad_envio,
+           p.total
+         FROM pedidos p
+         WHERE p.id_cliente = $1
+         ORDER BY p.fecha_pedido DESC
+         LIMIT $2 OFFSET $3`,
+        [id_cliente, limit, offset]
+      ),
+      pool.query(
+        `SELECT COUNT(*) FROM pedidos WHERE id_cliente = $1`,
+        [id_cliente]
+      )
+    ])
+
+    const totalRows = Number(total.rows[0].count);
+    const totalPages = Math.ceil(totalRows / limit);
 
     res.status(200).json({
       ok: true,
-      data: resultado.rows
+      data: resultado.rows,
+      paginacion: {
+        page,
+        limit,
+        totalRows,
+        totalPages,
+      }
     })
 
   } catch (error) {
