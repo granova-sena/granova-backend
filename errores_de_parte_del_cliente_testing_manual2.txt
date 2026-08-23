@@ -1,6 +1,12 @@
 El miembro desde - , no aparece en produccion
 Aparece error al actualizar el cliente, no se actualiza cuando pongo mi numero de cedula
-en el boton calcular si yo escribo por ejemplo 10000000000000, esa cosa se cae literalmente, deberia haber un limite por que ese espacio tan pequeño no creo que sea agrable y se veo cuando escribi por ejemplo 10000000000000 , eso sobresalio del calcular, entonces nose si aplicamos otra vista para culcar, o que solunamos hayi
 en el carrito sigue apareciendo el valor normal sin la oferta, pero en configuracion de pedido si me aparece el valor con oferta hay un enredo hayi
-tampoco se estan aplicando los descuentos cuando agrego un cupon, y eso es fatal pq si el cliente reclamo un cupon de 5% menos y lo pongo en configurar pedidio, y no me aplica ese descuento esta mal, super mal (ya c soluciono pero, no se esta mostrando en el resumen del 5% que se quito)
 aparece error interno al crear el pedido, cuando lo voy a confirmar
+IVA (incluido)
+$2105 (aparece esto y no deberia de aparecer) solo el mensajito de todos los productos contienen IVA 
+
+#Errores que aparecen en el servidor del backend a la hora de realizar el testing que basicamente son lo que aparecen arriba, pero ahora del lado del servidor para que sepas que es lo que esta fallando
+Error obteniendo cliente: column "fecha_creacion" does not exist
+Error obteniendo cliente: column "fecha_creacion" does not exist
+Error actualizando cliente: column "tipo_cliente" does not exist
+Error creando pedido: column "tipo_cliente" does not exist
