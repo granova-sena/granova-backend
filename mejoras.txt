@@ -1,9 +1,11 @@
-no hay como una simulacion de busqueda, cuando le doy enter a lo que quiero buscar en la barra de busqueda normal, no la de control k  (ya esta, pero se podria mejorar)
+no hay como una simulacion de busqueda, cuando le doy enter a lo que quiero buscar en la barra de busqueda normal, no la de control k  (ya esta, pero se podria mejorar,haciendo una simulacion de busqueda osea,osea que lo lleve por ejemplo al producto que busco)
 el boton de no sabes que elegir, solo filtra los cafes y las maquinas se quedan por fuera, como si no le ayudaramos a escoger al cliente una maquina para comprar segun su presupuesto (ya esta, pero se podria mejorar)
 en recomendados para ti cuando filtra y aparecen los productos el boton Ver todos, no esta funcionando(esta funcionado,pero no esta llevando o donde tiene que ir) (se podria mejorar)
 en las ofertas,populares,nuevos, no hay un boton para añadir al carrito ni tampoco un boton de ver detalle osea, el cliente que va a saber que le tiene que dar click a la tarjeta, y no solo en esos filtros si no en todos los productos no hay un boton que diga "ver detalle" (esta bien pero falta el boton de "ver detalle") (se puede mejorar)
 en el boton calcular si yo escribo por ejemplo 10000000000000, esa cosa se cae literalmente, deberia haber un limite por que ese espacio tan pequeño no creo que sea agrable y se veo cuando escribi por ejemplo 10000000000000 , eso sobresalio del calcular, entonces nose si aplicamos otra vista para culcar, o que solunamos hayi (funciona bien, pero podriamos innovar a otra cosa)
 cuando se me acomulan 52 puntos por haber echo una compra siendo un persona juridica, no veo cambio en mi cuenta aparece esto 🥉
+quiero por ejemplo,si al cliente se le acomulan muchos pedidos, no crees que es mejor nose,que sea tipo un historia por paginas,o no se, por que por ejemplo el usuario tiene 50 pedidos pendientes y en la parte de pedidos esa fila se haria muy larga ya que serian muchos pedidos del lado de ese cliente
+
 0
 puntos
 Nivel Bronce

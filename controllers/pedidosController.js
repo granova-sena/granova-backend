@@ -58,6 +58,7 @@ export const crearPedido = async (req, res) => {
     // Verificar productos, stock y traer el precio real desde la BD.
     // El precio nunca se toma del body: si el cliente lo manda, se ignora.
     // Mayorista usa precio_mayorista (si existe); minorista siempre precio público.
+    // Luego se aplica "mayor gana": max(descuento volumen, descuento promo).
     const productosConPrecio = [];
     for (const p of productos) {
       const productoExiste = await client.query(
@@ -83,8 +84,40 @@ export const crearPedido = async (req, res) => {
         });
       }
 
-      const precioAplicable = esMayorista && precio_mayorista != null ? Number(precio_mayorista) : Number(precio);
-      productosConPrecio.push({ ...p, precio_unitario: precioAplicable, cantidad });
+      // Precio base según tipo de cliente
+      const precioBase = esMayorista && precio_mayorista != null ? Number(precio_mayorista) : Number(precio);
+
+      // Consultar si tiene promoción vigente
+      const promoResult = await client.query(
+        `SELECT pr.valor_descuento
+         FROM promocion_productos pp
+         JOIN promociones pr ON pr.id_promocion = pp.id_promocion
+         WHERE pp.id_producto = $1 AND pr.estado = 'activa'
+           AND (pr.fecha_fin IS NULL OR pr.fecha_fin >= CURRENT_DATE)`,
+        [p.id_producto]
+      );
+      const promoPct = promoResult.rows.length > 0 ? Number(promoResult.rows[0].valor_descuento) : 0;
+
+      productosConPrecio.push({ ...p, precio_base: precioBase, promo_pct: promoPct, cantidad });
+    }
+
+    // ── "Mayor gana": calcular descuento por volumen según unidades totales ──
+    const totalUnidades = productosConPrecio.reduce((acc, p) => acc + p.cantidad, 0);
+    const UNIDADES_MINIMAS_DESCUENTO_MINORISTA = 5;
+    const DESCUENTO_MAYORISTA = 12;
+    const DESCUENTO_MINORISTA = 6;
+
+    const pctVolumen = esMayorista
+      ? DESCUENTO_MAYORISTA
+      : (totalUnidades >= UNIDADES_MINIMAS_DESCUENTO_MINORISTA ? DESCUENTO_MINORISTA : 0);
+
+    // Aplicar "mayor gana" por producto: el descuento más alto entre volumen y promo
+    for (const p of productosConPrecio) {
+      const pctGanador = Math.max(p.promo_pct || 0, pctVolumen);
+      const precioReal = pctGanador > 0
+        ? Math.round(p.precio_base * (1 - pctGanador / 100))
+        : p.precio_base;
+      p.precio_unitario = precioReal;
     }
 
     // ── Cupón: validar, bloquear, calcular descuento ──
@@ -173,6 +206,7 @@ export const crearPedido = async (req, res) => {
       data: {
         id_pedido,
         puntos_ganados: puntosGanados,
+        descuento_productos: productosConPrecio.reduce((acc, p) => acc + (p.precio_base - p.precio_unitario) * p.cantidad, 0),
         ...(cupon && {
           descuento_aplicado: descuentoCuponMonto,
           descuento_fuente: 'cupon',

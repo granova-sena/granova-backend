@@ -1,0 +1,2 @@
+falta el boton "ver detalles" en todos los productos en ves de depender que el cliente le de click a la card
+en la factura cuando se descarga en la parte de "mis pedidos" se ve un precio diferente al que en realidad pague en configuracion de pedido" por ejemplo pague uno de 88.400 que estaba en oferta, pero en la factura aparece 104.000 incluyendo el iva nose si es un error o que esta sucendiendo con esa logica, Basicamente los precios no estan coincidiendo tanto en la factura como en la configuracion de pago
