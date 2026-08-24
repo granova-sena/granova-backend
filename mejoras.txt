@@ -1,21 +1,11 @@
-no hay como una simulacion de busqueda, cuando le doy enter a lo que quiero buscar en la barra de busqueda normal, no la de control k  (ya esta, pero se podria mejorar,haciendo una simulacion de busqueda osea,osea que lo lleve por ejemplo al producto que busco)
+no hay como una simulacion de busqueda, cuando le doy enter a lo que quiero buscar en la barra de busqueda normal, no la de control k  (ya esta, pero se podria mejorar,haciendo una simulacion de busqueda osea,osea que lo lleve por ejemplo al producto que busco, osea que haga una navegacion hacia ese producto y priorice lo que esta buscando sabes, por que como esta esa barra actualmente esta fea, por que literalmente lo que yo busco esta por debajo de promociones, ofertas,populares,nuevo etc)
 el boton de no sabes que elegir, solo filtra los cafes y las maquinas se quedan por fuera, como si no le ayudaramos a escoger al cliente una maquina para comprar segun su presupuesto (ya esta, pero se podria mejorar)
 en el boton calcular si yo escribo por ejemplo 10000000000000, esa cosa se cae literalmente, deberia haber un limite por que ese espacio tan pequeño no creo que sea agrable y se veo cuando escribi por ejemplo 10000000000000 , eso sobresalio del calcular, entonces nose si aplicamos otra vista para culcar, o que solunamos hayi (funciona bien, pero podriamos innovar a otra cosa)
-cuando se me acomulan 52 puntos por haber echo una compra siendo un persona juridica, no veo cambio en mi cuenta aparece esto 🥉
-quiero por ejemplo,si al cliente se le acomulan muchos pedidos, no crees que es mejor nose,que sea tipo un historia por paginas,o no se, por que por ejemplo el usuario tiene 50 pedidos pendientes y en la parte de pedidos esa fila se haria muy larga ya que serian muchos pedidos del lado de ese cliente
-0
-puntos
-Nivel Bronce
-
-Faltan 1.000 pts para el siguiente nivel
-
-🏢 Tu descuento de empresa (10%) ya supera los cupones de lealtad — tus puntos se siguen acumulando para tu rango."
-✅
-y no se acomulan a las personas tipo juridicas (se soluciono pero se podria mejorar,lo analisaremos mañana)
-
-no hay una vista de recomendados para ti en la parte de maquinas
+quiero por ejemplo,si al cliente se le acomulan muchos pedidos, no crees que es mejor nose,que sea tipo un historia por paginas,o no se, por que por ejemplo el usuario tiene 50 pedidos pendientes y en la parte de pedidos esa fila se haria muy larga ya que serian muchos pedidos del lado de ese cliente (sigo sin ver las flechas de varias paginas de pedidos)
+no hay una vista de recomendados para ti en la parte de maquinas (no veo cambios de cuando se le ayuda a recomendar en las maquinas, no veo el apartado de recomendados para ti en las maquinas, osea y quiero que la recomendacion a elejir osea las preguntas se le hagan diferentes para las maquinas por si no sabe que elegir)
+el "ver todos" en la parte de recomendados para ti no esta navegando a ningun lado)
 
 
-el "ver todos" en la parte de recomendados para ti no esta navegando a ningun lado
+en la parte de producto destacado por tambien el "ver detalle", al igual como ya estan todos los produtos"
 
 no me entendiste lo de favoritos, osea en favoritos quiero que se genere una pestaña aparte en donde el usuairo solo pueda ver sus favoritos y pueda ver sus detalles etc, pero cuando le de clikc desde el menu de "mi cuenta", y quitalo de los filtros, de cafe,maquinas, y favoritos quitalo de hay

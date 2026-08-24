@@ -91,6 +91,42 @@ export const obtenerProducto = async (req, res) => {
 }
 
 // ─────────────────────────────────────────
+// GET /productos/top-vendidos?limit=5&dias=30
+// Ranking real de ventas (unidades) para la sección "Destacados" del catálogo.
+// Público: solo expone nombre/imagen/unidades, nada sensible.
+// ─────────────────────────────────────────
+export const obtenerTopVendidos = async (req, res) => {
+  const limit = Math.min(10, Math.max(1, Number(req.query.limit) || 5));
+  const dias = Math.min(365, Math.max(1, Number(req.query.dias) || 30));
+
+  try {
+    const resultado = await pool.query(
+      `SELECT
+         pr.id_producto,
+         pr.nombre,
+         pr.imagen_url,
+         SUM(dp.cantidad)::int AS unidades_vendidas,
+         COUNT(DISTINCT dp.id_pedido)::int AS pedidos_con_esto
+       FROM detalle_pedidos dp
+       JOIN productos pr ON pr.id_producto = dp.id_producto
+       JOIN pedidos p ON p.id_pedido = dp.id_pedido
+       WHERE p.fecha_pedido >= CURRENT_DATE - ($2 || ' days')::interval
+         AND lower(p.estado) != 'cancelado'
+       GROUP BY pr.id_producto, pr.nombre, pr.imagen_url
+       ORDER BY unidades_vendidas DESC
+       LIMIT $1`,
+      [limit, dias]
+    );
+
+    res.status(200).json({ ok: true, data: resultado.rows });
+
+  } catch (error) {
+    console.error("Error obteniendo top vendidos:", error.message);
+    res.status(500).json({ ok: false, mensaje: "Error al obtener los productos más vendidos" });
+  }
+};
+
+// ─────────────────────────────────────────
 // GET /productos/comparar?ids=5,9,14
 // ─────────────────────────────────────────
 export const compararProductos = async (req, res) => {

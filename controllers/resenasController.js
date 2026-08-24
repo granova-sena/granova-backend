@@ -60,6 +60,44 @@ export const crearResena = async (req, res) => {
   }
 };
 
+// GET /resenas/foros
+// Vista "Foros": todas las reseñas visibles agrupadas por producto,
+// con promedio y total por hilo. Solo lectura, requiere sesión de cliente.
+export const obtenerForos = async (req, res) => {
+  try {
+    const resultado = await pool.query(
+      `SELECT
+         pr.id_producto,
+         pr.nombre,
+         pr.imagen_url,
+         COALESCE(AVG(r.calificacion), 0)::numeric(3,1) AS promedio,
+         COUNT(r.id_resena)::int AS total_resenas,
+         json_agg(json_build_object(
+           'id_resena',    r.id_resena,
+           'calificacion', r.calificacion,
+           'comentario',   r.comentario,
+           'fecha_resena', r.fecha_resena,
+           'cliente_nombre', c.nombre
+         ) ORDER BY r.fecha_resena DESC) AS resenas
+       FROM productos pr
+       JOIN detalle_pedidos dp ON dp.id_producto = pr.id_producto
+       JOIN resenas r ON r.id_detalle_pedido = dp.id_detalle AND r.visible = TRUE
+       JOIN pedidos p ON p.id_pedido = dp.id_pedido
+       JOIN clientes c ON c.id_cliente = p.id_cliente
+       GROUP BY pr.id_producto, pr.nombre, pr.imagen_url
+       ORDER BY AVG(r.calificacion) DESC, COUNT(r.id_resena) DESC`
+    );
+
+    // Los hilos sin reseñas visibles no participan (el JOIN ya los excluye)
+
+    res.status(200).json({ ok: true, data: resultado.rows });
+
+  } catch (error) {
+    console.error("Error obteniendo foros:", error.message);
+    res.status(500).json({ ok: false, mensaje: "Error interno al obtener las reseñas" });
+  }
+};
+
 // GET /resenas/producto/:id_producto
 export const obtenerResenasProducto = async (req, res) => {
   const { id_producto } = req.params;
