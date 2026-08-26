@@ -75,7 +75,22 @@ const listarEntregas = async (req, res) => {
         AND date_trunc('month', fecha) = date_trunc('month', CURRENT_DATE)
     `)
 
-    res.json({ ok: true, entregas: entregas.rows, resumen: resumen.rows[0] })
+    // Cuánto le debemos a cada finca — la deuda no se resetea cada mes,
+    // por eso esta parte SÍ mira todo el histórico, no solo el mes actual.
+    const resumenPorFinca = await pool.query(`
+      SELECT f.id AS id_finca, f.nombre AS finca_nombre,
+             COALESCE(SUM(e.valor) FILTER (WHERE e.estado_pago = 'pendiente'), 0) AS pendiente,
+             COALESCE(SUM(e.valor) FILTER (WHERE e.estado_pago = 'pagado'
+               AND date_trunc('month', e.fecha) = date_trunc('month', CURRENT_DATE)), 0) AS pagado_mes,
+             COUNT(*) FILTER (WHERE e.estado_pago = 'pendiente') AS entregas_pendientes
+      FROM fincas f
+      JOIN entregas_finca e ON e.id_finca = f.id AND e.estado = 'registrada'
+      GROUP BY f.id, f.nombre
+      HAVING COALESCE(SUM(e.valor) FILTER (WHERE e.estado_pago = 'pendiente'), 0) > 0
+      ORDER BY pendiente DESC
+    `)
+
+    res.json({ ok: true, entregas: entregas.rows, resumen: resumen.rows[0], resumenPorFinca: resumenPorFinca.rows })
   } catch (error) {
     console.error(error)
     res.status(500).json({ ok: false, error: error.message })

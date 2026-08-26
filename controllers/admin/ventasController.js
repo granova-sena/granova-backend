@@ -74,6 +74,7 @@ const getVentas = async (req, res) => {
         c.nombre, c.apellido, c.email,
         dp1.producto_nombre,
         dp1.categoria_producto,
+        dp1.finca_nombre, dp1.codigo_lote,
         dp_sum.cantidad_total
       FROM pedidos p
       JOIN clientes c ON c.id_cliente = p.id_cliente
