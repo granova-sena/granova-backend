@@ -24,7 +24,8 @@ export const obtenerProductos = async (req, res) => {
             'etiqueta',   f.etiqueta,
             'peso_kg',    f.peso_kg,
             'precio',     f.precio,
-            'imagen_url', f.imagen_url
+            'imagen_url', f.imagen_url,
+            'stock',      COALESCE(f.stock, 0)
           ) ORDER BY f.peso_kg)
           FROM formatos_producto f
           WHERE f.id_producto = p.id_producto AND f.activo = true),

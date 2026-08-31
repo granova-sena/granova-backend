@@ -447,8 +447,12 @@ export async function loginAdmin(req, res) {
             return res.status(403).json({ error: "Tu cuenta está bloqueada, contacta al administrador" })
         }
 
+        if (usuario.estado === "eliminado") {
+            return res.status(403).json({ error: "Tu cuenta ya no está activa, contacta al administrador" })
+        }
+
         const token = jwt.sign(
-            { id: usuario.id_usuario, email: usuario.email, rol: usuario.rol },
+            { id: usuario.id_usuario, email: usuario.email, rol: usuario.rol, nombre: usuario.nombre },
             process.env.JWT_SECRET,
             { expiresIn: "2h" }
         )

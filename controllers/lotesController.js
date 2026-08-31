@@ -17,7 +17,7 @@ export const obtenerTrazabilidadLote = async (req, res) => {
          l.id_lote, l.codigo_lote, l.variedad, l.cantidad_kg, l.estado,
          f.id AS id_finca, f.nombre AS finca_nombre, f.region, f.altitud, f.lat, f.lng
        FROM lotes l
-       LEFT JOIN fincas f ON f.nombre = l.finca
+       LEFT JOIN fincas f ON f.id = l.id_finca OR (l.id_finca IS NULL AND f.nombre = l.finca)
        WHERE l.id_lote = $1`,
       [id]
     );
@@ -68,7 +68,7 @@ export const descargarCertificadoLote = async (req, res) => {
          l.codigo_lote, l.variedad, l.cantidad_kg,
          f.nombre AS finca_nombre, f.region, f.altitud
        FROM lotes l
-       LEFT JOIN fincas f ON f.nombre = l.finca
+       LEFT JOIN fincas f ON f.id = l.id_finca OR (l.id_finca IS NULL AND f.nombre = l.finca)
        WHERE l.id_lote = $1`,
       [id]
     );
@@ -189,14 +189,22 @@ export const descargarCertificadoLote = async (req, res) => {
 // ─────────────────────────────────────────
 export const crearLote = async (req, res) => {
   try {
-    const { codigo_lote, finca, region, variedad, cantidad_kg } = req.body;
+    const { codigo_lote, finca, id_finca, region, variedad, cantidad_kg } = req.body;
     if (!codigo_lote || !finca || cantidad_kg === undefined) {
       return res.status(400).json({ ok: false, error: "codigo_lote, finca y cantidad_kg son obligatorios" });
     }
+    let idFinca = Number(id_finca) || null;
+    if (!idFinca) {
+      const porNombre = await pool.query(
+        "SELECT id FROM fincas WHERE LOWER(nombre) = LOWER($1) LIMIT 1",
+        [finca]
+      );
+      idFinca = porNombre.rows[0]?.id || null;
+    }
     const result = await pool.query(
-      `INSERT INTO lotes (codigo_lote, finca, region, variedad, cantidad_kg, estado, fecha_registro)
-       VALUES ($1, $2, $3, $4, $5, 'disponible', NOW()) RETURNING id_lote`,
-      [codigo_lote.trim(), finca, region || null, variedad || null, Number(cantidad_kg)]
+      `INSERT INTO lotes (codigo_lote, finca, id_finca, region, variedad, cantidad_kg, estado, fecha_registro)
+       VALUES ($1, $2, $3, $4, $5, $6, 'disponible', NOW()) RETURNING id_lote`,
+      [codigo_lote.trim(), finca, idFinca, region || null, variedad || null, Number(cantidad_kg)]
     );
     res.json({ ok: true, id_lote: result.rows[0].id_lote });
   } catch (error) {
@@ -214,22 +222,73 @@ export const crearLote = async (req, res) => {
 export const actualizarLote = async (req, res) => {
   try {
     const { id } = req.params;
-    const { codigo_lote, region, variedad, cantidad_kg, estado } = req.body;
+
+    // La capacidad (cantidad_kg) NO se edita a mano: solo cambia registrando/
+    // anulando entregas (suma kg netos) o al confirmar un procesamiento
+    // (se descuenta el kg que se convierte en producto). Editar aquí pisaría
+    // la contabilidad real del lote.
+    if (req.body.cantidad_kg !== undefined) {
+      return res.status(400).json({
+        ok: false,
+        error: "La cantidad del lote no se edita a mano: solo cambia registrando o anulando entregas, y al procesar el lote. Revisa 'Control de lotes' antes de continuar."
+      });
+    }
+
+    const { codigo_lote, region, variedad, estado } = req.body;
+    if (estado !== undefined && !["disponible", "agotado"].includes(estado)) {
+      return res.status(400).json({ ok: false, error: "Estado inválido. Usa 'disponible' o 'agotado'" });
+    }
     const result = await pool.query(
       `UPDATE lotes SET
          codigo_lote = COALESCE($1, codigo_lote),
          region = COALESCE($2, region),
          variedad = COALESCE($3, variedad),
-         cantidad_kg = COALESCE($4, cantidad_kg),
-         estado = COALESCE($5, estado)
-       WHERE id_lote = $6 RETURNING id_lote`,
-      [codigo_lote || null, region || null, variedad || null,
-       cantidad_kg !== undefined ? Number(cantidad_kg) : null, estado || null, id]
+         estado = COALESCE($4, estado)
+       WHERE id_lote = $5 RETURNING id_lote`,
+      [codigo_lote || null, region || null, variedad || null, estado || null, id]
     );
     if (result.rows.length === 0) return res.status(404).json({ ok: false, error: "Lote no encontrado" });
     res.json({ ok: true });
   } catch (error) {
     console.error(error);
     res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+// ─────────────────────────────────────────
+// POST /inventario/lotes/:id/eventos - registrar evento de trazabilidad (empleado)
+// body: { tipo_evento, descripcion?, ubicacion?, fecha? }
+// Tipos permitidos: cosecha, procesado, tostado, envasado, enviado, entregado
+// (el CHECK de la tabla eventos_lote los valida de nuevo por seguridad).
+// ─────────────────────────────────────────
+export const registrarEventoLote = async (req, res) => {
+  const { id } = req.params;
+  const { tipo_evento, descripcion, ubicacion, fecha } = req.body;
+
+  const TIPOS_PERMITIDOS = ["cosecha", "procesado", "tostado", "envasado", "enviado", "entregado"];
+  if (!TIPOS_PERMITIDOS.includes(tipo_evento)) {
+    return res.status(400).json({
+      ok: false,
+      error: `tipo_evento inválido. Usa uno de: ${TIPOS_PERMITIDOS.join(", ")}`,
+    });
+  }
+
+  try {
+    const loteExiste = await pool.query(`SELECT id_lote FROM lotes WHERE id_lote = $1`, [id]);
+    if (loteExiste.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "Lote no encontrado" });
+    }
+
+    const resultado = await pool.query(
+      `INSERT INTO eventos_lote (id_lote, tipo_evento, fecha, descripcion, ubicacion)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id_evento`,
+      [id, tipo_evento, fecha || new Date().toISOString(), descripcion || null, ubicacion || null]
+    );
+
+    res.status(201).json({ ok: true, data: resultado.rows[0] });
+  } catch (error) {
+    console.error("Error registrando evento de lote:", error.message);
+    res.status(500).json({ ok: false, error: "No se pudo registrar el evento del lote" });
   }
 };

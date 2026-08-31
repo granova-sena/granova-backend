@@ -44,7 +44,9 @@ export const obtenerCliente = async (req, res) => {
     return res.status(400).json({ ok: false, mensaje: "El id del cliente debe ser un número" });
   }
 
-  const esAdmin = !!req.usuario?.rol;
+  // Solo el propio cliente (id en token sin rol) o un ADMIN (rol 'admin')
+  // pueden ver perfiles. Un token de empleado NUNCA accede por aquí.
+  const esAdmin = req.usuario?.rol === "admin";
   const esDueno = req.usuario?.id === Number(id);
   if (!esAdmin && !esDueno) {
     return res.status(403).json({ ok: false, mensaje: "No tienes permiso para ver este perfil" });
@@ -79,7 +81,8 @@ export const actualizarCliente = async (req, res) => {
     return res.status(400).json({ ok: false, mensaje: "El id del cliente debe ser un número" });
   }
 
-  const esAdmin = !!req.usuario?.rol;
+  // Mismo criterio que el GET: solo el propio cliente o un ADMIN.
+  const esAdmin = req.usuario?.rol === "admin";
   const esDueno = req.usuario?.id === Number(id);
   if (!esAdmin && !esDueno) {
     return res.status(403).json({ ok: false, mensaje: "No tienes permiso para editar este perfil" });

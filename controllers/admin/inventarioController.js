@@ -4,10 +4,18 @@ import { obtenerParametro } from "./parametrosController.js"
 
 const UMBRAL_STOCK_BAJO = 50; // % de la capacidad del lote
 
-function calcularEstado(stock, capacidad) {
-    if (stock <= 0) return 'Agotado';
-    if (capacidad > 0 && (stock / capacidad) * 100 <= UMBRAL_STOCK_BAJO) return 'Stock bajo';
+function calcularEstado(kgStock, capacidad) {
+    if (kgStock <= 0) return 'Agotado';
+    if (capacidad > 0 && (kgStock / capacidad) * 100 <= UMBRAL_STOCK_BAJO) return 'Stock bajo';
     return 'Disponible';
+}
+
+// El stock del café se guarda en UNIDADES (bolsas), pero la capacidad del lote
+// es en kg. Para compararlos, cada producto se traduce a su kg equivalente
+// (unidades × kg_equivalente de su presentación); así el % y el estado usan
+// la misma unidad y no se mezclan bolsas con kg.
+function kgEquivalenteStock(stock, kgEquivalente) {
+    return Number(stock) * (Number(kgEquivalente) || 0);
 }
 
 // Quita tildes y pasa a minúsculas, para que buscar "cafe" encuentre "Café".
@@ -76,9 +84,11 @@ async function obtenerProductosCalculados() {
     const result = await pool.query(`
     SELECT pr.id_producto, pr.nombre, pr.tipo_cafe, pr.precio, pr.costo_unitario, pr.stock, pr.imagen_url,
            pr.categoria_producto, pr.marca, pr.modelo, pr.garantia_meses,
-           l.finca, l.variedad, l.cantidad_kg AS capacidad
+           l.finca, l.variedad, l.cantidad_kg AS capacidad,
+           pc.kg_equivalente
     FROM productos pr
     LEFT JOIN lotes l ON l.id_lote = pr.id_lote
+    LEFT JOIN presentaciones_catalogo pc ON pc.id_presentacion = pr.id_presentacion
     ORDER BY pr.nombre
   `);
 
@@ -86,9 +96,12 @@ async function obtenerProductosCalculados() {
         const capacidad = Number(p.capacidad) || 0;
         const stock = Number(p.stock);
         const esMaquina = p.categoria_producto === 'maquina';
+        // En kg equivalentes: unidades × kg_equivalente (para café). El stock
+        // de una máquina no es bolsas; ahí se usa el conteo directo.
+        const kgStock = esMaquina ? stock : kgEquivalenteStock(stock, p.kg_equivalente);
         let pct;
         if (capacidad > 0) {
-            pct = Math.min(Math.round((stock / capacidad) * 100), 100);
+            pct = Math.min(Math.round((kgStock / capacidad) * 100), 100);
         } else {
             pct = stock > 0 ? 100 : 0;
         }
@@ -105,7 +118,7 @@ async function obtenerProductosCalculados() {
             pct,
             precio: Number(p.precio),
             imagen: p.imagen_url,
-            estado: calcularEstado(stock, capacidad)
+            estado: calcularEstado(kgStock, capacidad)
         };
     });
 }
@@ -219,7 +232,7 @@ const getInventarioPorFinca = async (req, res) => {
              p.id_producto, p.nombre AS producto_nombre, p.precio, p.precio_mayorista, p.stock,
              p.id_presentacion, pc.nombre AS presentacion_nombre, pc.kg_equivalente
       FROM fincas f
-      JOIN lotes l ON l.finca = f.nombre
+      LEFT JOIN lotes l ON l.id_finca = f.id OR (l.id_finca IS NULL AND l.finca = f.nombre)
       LEFT JOIN productos p ON p.id_lote = l.id_lote AND p.estado = 'activo'
       LEFT JOIN presentaciones_catalogo pc ON pc.id_presentacion = p.id_presentacion
       ORDER BY f.nombre, l.codigo_lote, p.nombre
@@ -231,6 +244,8 @@ const getInventarioPorFinca = async (req, res) => {
                 fincas.set(row.id_finca, { id_finca: row.id_finca, nombre: row.finca_nombre, kgTotales: 0, lotes: new Map() });
             }
             const finca = fincas.get(row.id_finca);
+
+            if (!row.id_lote) continue;
 
             if (!finca.lotes.has(row.id_lote)) {
                 finca.lotes.set(row.id_lote, {
@@ -334,9 +349,11 @@ const getProductoPorId = async (req, res) => {
       SELECT pr.id_producto, pr.nombre, pr.descripcion, pr.tipo_cafe, pr.presentacion,
              pr.precio, pr.stock, pr.imagen_url, pr.id_lote,
              pr.categoria_producto, pr.marca, pr.modelo, pr.garantia_meses,
-             l.finca, l.variedad, l.cantidad_kg AS capacidad
+             l.finca, l.variedad, l.cantidad_kg AS capacidad,
+             pc.kg_equivalente
       FROM productos pr
       LEFT JOIN lotes l ON l.id_lote = pr.id_lote
+      LEFT JOIN presentaciones_catalogo pc ON pc.id_presentacion = pr.id_presentacion
       WHERE pr.id_producto = $1
     `, [id]);
 
@@ -347,9 +364,11 @@ const getProductoPorId = async (req, res) => {
         const producto = result.rows[0];
         const capacidad = Number(producto.capacidad) || 0;
         const stock = Number(producto.stock);
+        const esMaquina = producto.categoria_producto === 'maquina';
+        const kgStock = esMaquina ? stock : kgEquivalenteStock(stock, producto.kg_equivalente);
         let pct;
         if (capacidad > 0) {
-            pct = Math.min(Math.round((stock / capacidad) * 100), 100);
+            pct = Math.min(Math.round((kgStock / capacidad) * 100), 100);
         } else {
             pct = stock > 0 ? 100 : 0;
         }
@@ -373,7 +392,7 @@ const getProductoPorId = async (req, res) => {
                 origen: [producto.finca, producto.variedad].filter(Boolean).join(' · '),
                 capacidad,
                 pct,
-                estado: calcularEstado(stock, capacidad)
+                estado: calcularEstado(kgStock, capacidad)
             }
         });
     } catch (error) {
@@ -679,9 +698,11 @@ const restablecerProducto = async (req, res) => {
         }
 
         const actual = await pool.query(`
-      SELECT pr.stock, l.cantidad_kg AS capacidad
+      SELECT pr.stock, pr.categoria_producto, pr.id_presentacion, l.cantidad_kg AS capacidad,
+             pc.kg_equivalente
       FROM productos pr
       LEFT JOIN lotes l ON l.id_lote = pr.id_lote
+      LEFT JOIN presentaciones_catalogo pc ON pc.id_presentacion = pr.id_presentacion
       WHERE pr.id_producto = $1
     `, [id]);
 
@@ -691,10 +712,13 @@ const restablecerProducto = async (req, res) => {
 
         const stockActual = Number(actual.rows[0].stock);
         const capacidad = Number(actual.rows[0].capacidad) || 0;
+        const esMaquina = actual.rows[0].categoria_producto === 'maquina';
+        const kgStockActual = esMaquina ? stockActual : kgEquivalenteStock(stockActual, actual.rows[0].kg_equivalente);
         const nuevoStock = Number(cantidad);
+        const kgStockNuevo = esMaquina ? nuevoStock : kgEquivalenteStock(nuevoStock, actual.rows[0].kg_equivalente);
 
-        const estadoAnterior = calcularEstado(stockActual, capacidad);
-        const estadoNuevo = calcularEstado(nuevoStock, capacidad);
+        const estadoAnterior = calcularEstado(kgStockActual, capacidad);
+        const estadoNuevo = calcularEstado(kgStockNuevo, capacidad);
 
         const result = await pool.query(`
       UPDATE productos SET stock = $1 WHERE id_producto = $2

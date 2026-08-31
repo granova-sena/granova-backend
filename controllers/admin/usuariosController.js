@@ -3,7 +3,7 @@ import pool from "../../config/db.js"
 const getUsuarios = async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT *
+      SELECT id_usuario, nombre, apellido, email, rol, estado
       FROM usuarios
       ORDER BY id_usuario ASC
     `);

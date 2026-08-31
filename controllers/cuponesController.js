@@ -31,6 +31,18 @@ export const validarCupon = async (req, res) => {
   }
 
   try {
+    // Personas jurídicas no usan cupones de lealtad (tienen 10% de empresa)
+    const perfil = await pool.query(
+      `SELECT tipo_persona FROM clientes WHERE id_cliente = $1`,
+      [id_cliente]
+    );
+    if (perfil.rows[0]?.tipo_persona === "juridica") {
+      return res.status(400).json({
+        ok: false,
+        mensaje: "Los cupones de lealtad no aplican para cuentas empresariales",
+      });
+    }
+
     const resultado = await pool.query(
       `SELECT descuento_pct, fecha_vencimiento
        FROM cupones
@@ -107,13 +119,22 @@ export const canjearCupon = async (req, res) => {
     await client.query("BEGIN");
 
     const clienteRes = await client.query(
-      `SELECT puntos FROM clientes WHERE id_cliente = $1`,
+      `SELECT puntos, tipo_persona FROM clientes WHERE id_cliente = $1`,
       [id_cliente]
     );
 
     if (clienteRes.rows.length === 0) {
       await client.query("ROLLBACK");
       return res.status(404).json({ ok: false, mensaje: "Cliente no encontrado" });
+    }
+
+    // Personas jurídicas no participan del programa de lealtad
+    if (clienteRes.rows[0].tipo_persona === "juridica") {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        ok: false,
+        mensaje: "Las cuentas empresariales no canjean puntos: ya tienen 10% de descuento",
+      });
     }
 
     const puntosActuales = Number(clienteRes.rows[0].puntos || 0);

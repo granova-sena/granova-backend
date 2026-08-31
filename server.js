@@ -23,13 +23,18 @@ import facturasRoutes  from "./routes/facturasRoutes.js"
 import correoRoutes    from "./routes/correoRoutes.js"
 import lotesRoutes     from "./routes/lotesRoutes.js"
 import resenasRoutes   from "./routes/resenasRoutes.js"
+import notificacionesRoutes from "./routes/notificacionesRoutes.js"
+import pagosRoutes from "./routes/pagosRoutes.js"
 
 // Rutas admin (Daniel)
 import dashboardRoutes    from "./routes/admin/dashboardRoutes.js"
 import inventarioRoutes   from "./routes/admin/inventarioRoutes.js"
+import logisticaRoutes    from "./routes/admin/logisticaRoutes.js"
 import ventasRoutes       from "./routes/admin/ventasRoutes.js"
 import alertasAdminRoutes from "./routes/admin/alertasRoutes.js"
 import pedidosAdminRoutes from "./routes/admin/pedidosRoutes.js"
+import promocionesAdminRoutes from "./routes/admin/promocionesRoutes.js"
+import resenasAdminRoutes from "./routes/admin/resenasRoutes.js"
 import usuariosAdminRoutes from "./routes/admin/usuariosRoutes.js"
 import reportesRoutes from "./routes/admin/reportes.js"
 import empleadosRoutes from "./routes/admin/empleadosRoutes.js"
@@ -72,13 +77,18 @@ app.use("/api/pedidos",   pedidosRoutes)
 app.use("/api/facturas",  facturasRoutes)
 app.use("/api/correo",    correoRoutes)
 app.use("/api/resenas",   resenasRoutes)
+app.use("/api/notificaciones", notificacionesRoutes)
+app.use("/api/pagos",    pagosRoutes)
 
 // Rutas admin
 app.use("/api/dashboard", dashboardRoutes)
 app.use("/api/inventario", inventarioRoutes)
+app.use("/api/logistica",  logisticaRoutes)
 app.use("/api/ventas",     ventasRoutes)
 app.use("/api/alertas",    alertasAdminRoutes)
 app.use("/api/admin/pedidos", pedidosAdminRoutes)
+app.use("/api/admin/promociones", promocionesAdminRoutes)
+app.use("/api/admin/resenas", resenasAdminRoutes)
 app.use("/api/usuarios",   usuariosAdminRoutes)
 app.use("/api/reportes",   reportesRoutes)
 app.use("/api/empleados",  empleadosRoutes)

@@ -1,0 +1,7 @@
+[11:02 p. m., 25/8/2026] Rocha: En control de inventario: 
+Cuando actualiza debería salir solo el boton de perdido y no el de kg en proceso ya que se debe descontar al kg que se muestra hay y no a la db por q ese café se encuentra en catálogo y no debería haber pérdidas en café que ya está en catálogo, que el kg disponible sea igual al que se muestra en la columna y cuando se procede el lote salga en el lote en proceso y lo mandé a cosechar planeadas el cual muestra hay cuando le precione en agregar lo sume a los productos del catálogo
+[11:02 p. m., 25/8/2026] Rocha: Es más alargue de palabras q cosa por hacer
+[11:03 p. m., 25/8/2026] Rocha: En control de inventario: 
+Cuando actualiza debería salir solo el boton de perdido y no el de kg en proceso ya que se debe descontar al kg que se muestra hay y no a la db por q ese café se encuentra en catálogo y no debería haber pérdidas en café que ya está en catálogo, que el kg disponible sea igual al que se muestra en la columna y cuando se procede el lote salga en el lote en proceso y lo mandé a cosechar planeadas el cual muestra hay cuando le precione en agregar lo sume a los productos del catálogo
+Y permita ver en un menu los reportes los cuales les han mandado
+Eso para el usuario y el admin que cuando le de en reporte le muestre un cuadro para escribir el reporte y lo mandé a la vista del empleado

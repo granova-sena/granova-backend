@@ -1,6 +1,6 @@
 import { Router } from "express"
 import {
-  getResumen, getPedidos, getPedidoDetalle, aceptarPedido, cancelarPedido
+  getResumen, getPedidos, getPedidoDetalle, aceptarPedido, cancelarPedido, cambiarEstadoPedido, marcarPago
 } from "../../controllers/admin/pedidosController.js"
 import { verificarToken } from "../../middleware/verificarToken.js"
 import { verificarRol } from "../../middleware/verificarRol.js"
@@ -18,6 +18,7 @@ router.get("/listado", puedeVer, getPedidos)
 router.get("/:id", puedeVer, getPedidoDetalle)
 router.patch("/:id/aceptar", puedeEditar, aceptarPedido)
 router.patch("/:id/rechazar", puedeEditar, cancelarPedido)
-router.patch("/:id/cancelar", puedeEditar, cancelarPedido) // alias viejo, por compatibilidad
+router.patch("/:id/estado", puedeEditar, cambiarEstadoPedido)
+router.patch("/:id/pago", puedeEditar, marcarPago)
 
 export default router

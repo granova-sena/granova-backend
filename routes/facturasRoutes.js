@@ -1,8 +1,13 @@
 import { Router } from "express";
 import { crearFactura, obtenerFactura } from "../controllers/facturasController.js";
+import { verificarToken } from "../middleware/verificarToken.js";
+import { verificarRol } from "../middleware/verificarRol.js";
 
 const router = Router();
 
-router.post("/", crearFactura);
-router.get("/:id_pedido",     obtenerFactura);
+// Emitir factura: solo admin/empleado desde el panel
+router.post("/", verificarToken, verificarRol(["admin", "empleado"]), crearFactura);
+// Ver factura: el dueño del pedido o admin/empleado (validado en el controller)
+router.get("/:id_pedido", verificarToken, obtenerFactura);
+
 export default router;

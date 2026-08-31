@@ -3,7 +3,7 @@ import { crearPedido, obtenerPedido, obtenerPedidosCliente} from "../controllers
 import { verificarToken } from "../middleware/verificarToken.js";
 
 const router = Router();
-router.post("/", crearPedido);
+router.post("/", verificarToken, crearPedido);
 router.get("/cliente/:id_cliente", verificarToken, obtenerPedidosCliente);
 router.get("/:id", verificarToken, obtenerPedido);
 

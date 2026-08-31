@@ -1,4 +1,5 @@
 import pool from "../../config/db.js"
+import { devolverStockPedido } from "../../utils/stockPedido.js"
 
 function normalizar(texto) {
   return String(texto || '')
@@ -17,12 +18,32 @@ function formatearPedido(id) {
 // pueden venir como 'Pendiente' o 'Pagado'. 'Cancelado' (nombre viejo) y
 // 'Rechazado' (nombre nuevo) se tratan igual, para no perder pedidos
 // rechazados antes de este cambio.  insensible a mayúsculas/espacios.
+//
+// IMPORTANTE: la base de datos (constraint pedidos_estado_check) solo acepta
+// estos valores crudos: pendiente, confirmado, en_proceso, enviado,
+// entregado, cancelado. 'en_proceso' se muestra al usuario como "Empacando"
+// y 'enviado' se muestra como "En camino" — son solo nombres de presentación,
+// no existen como tal en la BD.
 function bucketEstado(estadoCrudo) {
   const estado = normalizar(estadoCrudo);
   if (estado === 'cancelado' || estado === 'rechazado') return 'Rechazado';
   if (estado === 'pendiente') return 'Pendiente';
-  return 'Confirmado'; // 'confirmado' o 'pagado'
+  if (estado === 'confirmado' || estado === 'pagado') return 'Confirmado';
+  if (estado === 'en_proceso') return 'Empacando';
+  if (estado === 'enviado') return 'En camino';
+  if (estado === 'entregado') return 'Entregado';
+  return 'Confirmado';
 }
+
+// Secuencia de estados que el EMPLEADO avanza desde el panel.
+// Usa los valores crudos que sí acepta pedidos_estado_check en la BD.
+const SECUENCIA_ESTADOS = ['confirmado', 'en_proceso', 'enviado', 'entregado'];
+
+const TITULOS_NOTIFICACION = {
+  en_proceso: { titulo: 'Tu pedido está siendo empacado 📦', mensaje: 'Tu café ya pasó a preparación y pronto saldrá hacia ti.' },
+  enviado: { titulo: 'Tu pedido va en camino 🚚', mensaje: 'El transportador ya tiene tu pedido. ¡Prepárate para recibirlo!' },
+  entregado: { titulo: '¡Tu pedido llegó! 🎉', mensaje: 'Tu café ya está en tus manos. Cuéntanos qué tal te fue dejando una reseña.' },
+};
 
 const getResumen = async (req, res) => {
   try {
@@ -251,10 +272,7 @@ if (!id || Number.isNaN(Number(id))) {
       return res.status(400).json({ ok: false, error: 'Solo se pueden rechazar pedidos pendientes.' });
     }
 
-    const items = await client.query(`SELECT id_producto, cantidad FROM detalle_pedidos WHERE id_pedido = $1`, [id]);
-    for (const item of items.rows) {
-      await client.query(`UPDATE productos SET stock = stock + $1 WHERE id_producto = $2`, [item.cantidad, item.id_producto]);
-    }
+    await devolverStockPedido(client, id);
 
     await client.query(
       `UPDATE pedidos SET estado = 'cancelado', motivo_rechazo = $1 WHERE id_pedido = $2`,
@@ -280,4 +298,178 @@ if (!id || Number.isNaN(Number(id))) {
   }
 };
 
-export { getResumen, getPedidos, getPedidoDetalle, aceptarPedido, cancelarPedido };
+// PATCH /admin/pedidos/:id/estado  { estado: 'empacando' | 'en_camino' | 'entregado' }
+// El EMPLEADO avanza el pedido paso a paso (secuencia estricta) y al cliente
+// le llega una notificación por cada cambio.
+//
+// El front puede seguir mandando 'empacando' / 'en_camino' (nombres de
+// presentación) — aquí se traducen a los valores reales que acepta la BD
+// ('en_proceso' / 'enviado') antes de guardarlos.
+const ALIAS_ESTADO_ENTRADA = {
+  empacando: 'en_proceso',
+  en_camino: 'enviado',
+};
+
+const cambiarEstadoPedido = async (req, res) => {
+  const { id } = req.params;
+  const { estado } = req.body;
+  const estadoNormalizado = normalizar(estado);
+  const estadoSiguiente = ALIAS_ESTADO_ENTRADA[estadoNormalizado] || estadoNormalizado;
+
+  if (!SECUENCIA_ESTADOS.includes(estadoSiguiente) || estadoSiguiente === 'confirmado') {
+    return res.status(400).json({ ok: false, error: 'Estado inválido. Usa: empacando, en_camino o entregado.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    if (!id || Number.isNaN(Number(id))) {
+      return res.status(400).json({ ok: false, error: 'Id de pedido inválido.' });
+    }
+
+    await client.query('BEGIN');
+
+    const actual = await client.query(
+      `SELECT estado, id_cliente, estado_pago FROM pedidos WHERE id_pedido = $1 FOR UPDATE`,
+      [id]
+    );
+    if (actual.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ ok: false, error: 'Pedido no encontrado.' });
+    }
+
+    // Un pedido con pago fallido no puede avanzar en la logística
+    if (actual.rows[0].estado_pago === 'fallido') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ ok: false, error: 'El pago del pedido falló: no se puede avanzar sin resolver el pago.' });
+    }
+
+    const actualCrudo = normalizar(actual.rows[0].estado);
+    if (actualCrudo === 'cancelado' || actualCrudo === 'rechazado') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ ok: false, error: 'Un pedido rechazado no puede avanzar de estado.' });
+    }
+
+    const idxActual = SECUENCIA_ESTADOS.indexOf(actualCrudo);
+    const idxNuevo = SECUENCIA_ESTADOS.indexOf(estadoSiguiente);
+    if (idxActual === -1 || idxNuevo !== idxActual + 1) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        ok: false,
+        error: `El pedido está en "${bucketEstado(actualCrudo)}": el siguiente estado es "${bucketEstado(SECUENCIA_ESTADOS[idxActual + 1] || 'entregado')}".`
+      });
+    }
+
+    await client.query(`UPDATE pedidos SET estado = $1 WHERE id_pedido = $2`, [estadoSiguiente, id]);
+
+    // Notificar al cliente dueño del pedido
+    const notif = TITULOS_NOTIFICACION[estadoSiguiente];
+    if (notif) {
+      await client.query(
+        `INSERT INTO notificaciones (id_cliente, tipo, titulo, mensaje, id_pedido)
+         VALUES ($1, 'pedido', $2, $3, $4)`,
+        [actual.rows[0].id_cliente, notif.titulo, notif.mensaje, id]
+      );
+    }
+
+    await client.query('COMMIT');
+    res.json({ ok: true, estado: bucketEstado(estadoSiguiente) });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error en cambiarEstadoPedido:', error);
+    if (error.code === '42P01') {
+      return res.status(500).json({
+        ok: false,
+        error: 'Falta la tabla notificaciones. Corre sql/12_notificaciones.sql en Supabase.'
+      });
+    }
+    res.status(500).json({ ok: false, error: 'No se pudo actualizar el estado del pedido.' });
+  } finally {
+    client.release();
+  }
+};
+
+// PATCH /admin/pedidos/:id/pago  { estado_pago: 'pagado' }
+// El empleado confirma el cobro MANUAL (transferencia/efectivo) o el pago
+// contra-entrega al entregar. Al pagar, un pedido aún 'pendiente' se confirma
+// y el cliente recibe notificación + puntos de lealtad.
+// El empleado NUNCA decide si hubo pago en pasarela: eso lo confirma el
+// backend (doc 01: el cobro virtual es automático).
+const marcarPago = async (req, res) => {
+  const { id } = req.params;
+  const estadoPagoDestino = String(req.body?.estado_pago || '').trim();
+
+  if (!id || Number.isNaN(Number(id))) {
+    return res.status(400).json({ ok: false, error: 'Id de pedido inválido.' });
+  }
+  if (estadoPagoDestino !== 'pagado') {
+    return res.status(400).json({ ok: false, error: 'Solo se puede marcar el pago como "pagado".' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const actual = await client.query(
+      `SELECT p.id_pedido, p.estado, p.estado_pago, p.metodo_pago, p.total, p.id_cliente, c.tipo_persona
+       FROM pedidos p
+       JOIN clientes c ON c.id_cliente = p.id_cliente
+       WHERE p.id_pedido = $1
+       FOR UPDATE OF p`,
+      [id]
+    );
+
+    if (actual.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ ok: false, error: 'Pedido no encontrado.' });
+    }
+
+    const pedido = actual.rows[0];
+
+    if (pedido.estado_pago === 'pagado') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ ok: false, error: 'Este pedido ya está pagado.' });
+    }
+    // La pasarela se procesa por el cliente en /api/pagos, no por el panel.
+    if (['tarjeta', 'pse', 'nequi', 'daviplata'].includes(pedido.metodo_pago) && pedido.estado_pago === 'pendiente') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ ok: false, error: 'Este pedido usa pasarela: el pago se confirma al cliente.' });
+    }
+
+    const nuevoEstado = pedido.estado === 'pendiente' ? 'confirmado' : pedido.estado;
+    await client.query(
+      `UPDATE pedidos SET estado_pago = 'pagado', estado = $1 WHERE id_pedido = $2`,
+      [nuevoEstado, id]
+    );
+
+    // Trazabilidad del cobro manual
+    await client.query(
+      `INSERT INTO pagos (id_pedido, metodo_pago, monto, referencia, estado, fecha_pago, confirmado_por)
+       VALUES ($1, $2, $3, $4, 'aprobado', NOW(), $5)`,
+      [id, pedido.metodo_pago, pedido.total, `MANUAL-${Date.now().toString(36).toUpperCase()}`, req.usuario?.id || null]
+    );
+
+    await client.query(
+      `INSERT INTO notificaciones (id_cliente, tipo, titulo, mensaje, id_pedido)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [pedido.id_cliente, 'pago', 'Pago aprobado ✅', `Recibimos tu pago por $${Number(pedido.total).toLocaleString("es-CO")}. Tu pedido ya está confirmado.`, id]
+    );
+
+    // Puntos de lealtad al confirmar el pago
+    const esJuridica = pedido.tipo_persona === 'juridica';
+    const puntos = esJuridica ? 0 : Math.floor(Number(pedido.total) / 1000);
+    if (puntos > 0) {
+      await client.query(`UPDATE clientes SET puntos = puntos + $1 WHERE id_cliente = $2`, [puntos, pedido.id_cliente]);
+    }
+
+    await client.query('COMMIT');
+    res.json({ ok: true, estado: bucketEstado(nuevoEstado), estado_pago: 'pagado', puntos_ganados: puntos });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error en marcarPago:', error);
+    res.status(500).json({ ok: false, error: 'No se pudo marcar el pago.' });
+  } finally {
+    client.release();
+  }
+};
+
+export { getResumen, getPedidos, getPedidoDetalle, aceptarPedido, cancelarPedido, cambiarEstadoPedido, marcarPago };

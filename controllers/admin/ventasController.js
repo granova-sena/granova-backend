@@ -21,6 +21,7 @@ const getResumen = async (req, res) => {
         COALESCE(SUM(total) FILTER (WHERE date_trunc('month', fecha_pedido) = date_trunc('month', CURRENT_DATE)), 0) AS actual,
         COALESCE(SUM(total) FILTER (WHERE date_trunc('month', fecha_pedido) = date_trunc('month', CURRENT_DATE - INTERVAL '1 month')), 0) AS anterior
       FROM pedidos
+      WHERE lower(estado) NOT IN ('cancelado', 'rechazado')
     `);
 
     const kg = await pool.query(`
@@ -29,6 +30,7 @@ const getResumen = async (req, res) => {
       ), 0) AS actual
       FROM detalle_pedidos dp
       JOIN pedidos p ON p.id_pedido = dp.id_pedido
+      WHERE lower(p.estado) NOT IN ('cancelado', 'rechazado')
     `);
 
     const clientesActivos = await pool.query(`SELECT COUNT(*) AS total FROM clientes WHERE estado = 'activo'`);
@@ -93,6 +95,7 @@ const getVentas = async (req, res) => {
         FROM detalle_pedidos dp
         WHERE dp.id_pedido = p.id_pedido
       ) dp_sum ON true
+      WHERE lower(p.estado) NOT IN ('cancelado', 'rechazado')
       ORDER BY p.fecha_pedido DESC
     `);
 
@@ -168,7 +171,7 @@ const getProductosDisponibles = async (req, res) => {
 };
 
 const crearVenta = async (req, res) => {
-  const { id_cliente, metodo_pago, estado, items } = req.body;
+  const { id_cliente, metodo_pago, items } = req.body;
 
   if (!id_cliente || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ ok: false, error: 'Selecciona un cliente y al menos un producto.' });
@@ -205,11 +208,12 @@ const crearVenta = async (req, res) => {
       detalles.push({ id_producto: producto.id_producto, cantidad, precio_unitario, subtotal });
     }
 
-    // Valores reales del CHECK "pedidos_estado_check" (confirmados con
-    // pg_get_constraintdef): pendiente, confirmado, en_proceso, enviado,
-    // entregado, cancelado —  en minúscula. El modal de "Nueva venta"
-    // mandaba 'Pendiente'/'Confirmado' con mayúscula, lo que rompía el CHECK.
-    const estadoFinal = estado === 'Confirmado' ? 'confirmado' : 'pendiente';
+    // Venta de mostrador: se cobra y entrega en el momento, así que se
+    // registra directamente como confirmado. El modal de "Nueva venta" ya no
+    // manda "estado" (quedó eliminado del formulario). Valores válidos del
+    // CHECK "pedidos_estado_check": pendiente, confirmado, en_proceso,
+    // enviado, entregado, cancelado — en minúscula.
+    const estadoFinal = 'confirmado';
 
     // Igual que con el estado: el CHECK "pedidos_metodo_pago_check" solo
     // acepta los valores en minúscula que usa pedidosController.js
@@ -219,8 +223,8 @@ const crearVenta = async (req, res) => {
     const metodoPagoFinal = metodo_pago ? String(metodo_pago).toLowerCase() : null;
 
     const pedidoResult = await client.query(`
-      INSERT INTO pedidos (id_cliente, fecha_pedido, estado, metodo_pago, total)
-      VALUES ($1, NOW(), $2, $3, $4)
+      INSERT INTO pedidos (id_cliente, fecha_pedido, estado, estado_pago, metodo_pago, total)
+      VALUES ($1, NOW(), $2, 'pagado', $3, $4)
       RETURNING id_pedido
     `, [id_cliente, estadoFinal, metodoPagoFinal, total]);
 

@@ -63,7 +63,16 @@ const obtenerEmpleado = async (req, res) => {
     }
 
     const reportes = await pool.query(
-      `SELECT r.id_reporte, r.motivo, r.fecha, u.nombre AS creado_por_nombre
+      `SELECT r.id_reporte, r.motivo, r.fecha, u.nombre AS creado_por_nombre,
+              COALESCE((
+                SELECT json_agg(json_build_object(
+                  'id_respuesta', rr.id_respuesta,
+                  'respuesta', rr.respuesta,
+                  'fecha', rr.fecha,
+                  'id_empleado', rr.id_empleado
+                ) ORDER BY rr.fecha ASC)
+                FROM reporte_respuestas rr WHERE rr.id_reporte = r.id_reporte
+              ), '[]'::json) AS respuestas
        FROM reportes_empleado r
        LEFT JOIN usuarios u ON u.id_usuario = r.creado_por
        WHERE r.id_empleado = $1
@@ -103,11 +112,21 @@ const obtenerEmpleado = async (req, res) => {
       [id]
     )
 
+    // Totales reales (sin el LIMIT de la vista) para que el resumen sea exacto
+    const totales = await pool.query(
+      `SELECT
+        (SELECT COUNT(*) FROM productos p WHERE p.creado_por = $1)::int AS productos,
+        (SELECT COUNT(*) FROM entregas_finca e WHERE e.registrado_por = $1 AND e.estado = 'registrada')::int AS entregas,
+        (SELECT COUNT(*) FROM entregas_finca e WHERE e.pagado_por = $1 AND e.estado = 'registrada')::int AS pagos,
+        (SELECT COUNT(*) FROM procesamientos_lote pl WHERE pl.procesado_por = $1)::int AS procesos`,
+      [id]
+    )
+
     const resumenHistorial = {
-      productosAgregados: historial.rows.filter(h => h.tipo === 'producto').length,
-      entregasRegistradas: historial.rows.filter(h => h.tipo === 'entrega').length,
-      pagosMarcados: historial.rows.filter(h => h.tipo === 'pago').length,
-      lotesProcesados: historial.rows.filter(h => h.tipo === 'proceso').length,
+      productosAgregados: totales.rows[0].productos,
+      entregasRegistradas: totales.rows[0].entregas,
+      pagosMarcados: totales.rows[0].pagos,
+      lotesProcesados: totales.rows[0].procesos,
     }
 
     res.json({ ok: true, empleado: result.rows[0], reportes: reportes.rows, historial: historial.rows, resumenHistorial })
@@ -144,7 +163,7 @@ const crearEmpleado = async (req, res) => {
   } catch (error) {
     console.error(error)
     if (error.code === "23514") {
-      return res.status(400).json({ ok: false, error: "El rol 'empleado' no está permitido en la base de datos todavía" })
+      return res.status(400).json({ ok: false, error: "No se pudo crear el empleado: un valor no cumple las reglas de la base de datos" })
     }
     res.status(500).json({ ok: false, error: error.message })
   }
@@ -154,6 +173,10 @@ const actualizarEmpleado = async (req, res) => {
   try {
     const { id } = req.params
     const { nombre, apellido, estado } = req.body
+
+    if (estado !== undefined && !["activo", "inactivo", "bloqueado"].includes(estado)) {
+      return res.status(400).json({ ok: false, error: "Estado inválido" })
+    }
 
     const result = await pool.query(
       `UPDATE usuarios
@@ -339,7 +362,16 @@ const eliminarEmpleado = async (req, res) => {
 const misReportes = async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT r.id_reporte, r.motivo, r.fecha, u.nombre AS creado_por_nombre
+      `SELECT r.id_reporte, r.motivo, r.fecha, u.nombre AS creado_por_nombre,
+              COALESCE((
+                SELECT json_agg(json_build_object(
+                  'id_respuesta', rr.id_respuesta,
+                  'respuesta', rr.respuesta,
+                  'fecha', rr.fecha,
+                  'id_empleado', rr.id_empleado
+                ) ORDER BY rr.fecha ASC)
+                FROM reporte_respuestas rr WHERE rr.id_reporte = r.id_reporte
+              ), '[]'::json) AS respuestas
        FROM reportes_empleado r
        LEFT JOIN usuarios u ON u.id_usuario = r.creado_por
        WHERE r.id_empleado = $1
@@ -353,9 +385,40 @@ const misReportes = async (req, res) => {
   }
 }
 
+// El empleado responde a un reporte suyo con una explicación
+const responderReporte = async (req, res) => {
+  try {
+    const { idReporte } = req.params
+    const { respuesta } = req.body
+    if (!respuesta || !respuesta.trim()) {
+      return res.status(400).json({ ok: false, error: "La respuesta es obligatoria" })
+    }
+
+    // Verificar que el reporte pertenece al empleado conectado
+    const reporte = await pool.query(
+      `SELECT id_reporte FROM reportes_empleado WHERE id_reporte = $1 AND id_empleado = $2`,
+      [idReporte, req.usuario.id]
+    )
+    if (reporte.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "Reporte no encontrado" })
+    }
+
+    const result = await pool.query(
+      `INSERT INTO reporte_respuestas (id_reporte, id_empleado, respuesta)
+       VALUES ($1, $2, $3)
+       RETURNING id_respuesta, respuesta, fecha`,
+      [idReporte, req.usuario.id, respuesta.trim()]
+    )
+    res.json({ ok: true, respuesta: result.rows[0] })
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ ok: false, error: error.message })
+  }
+}
+
 export {
   listarEmpleados, obtenerEmpleado, crearEmpleado,
   actualizarEmpleado, resetearPasswordEmpleado, eliminarEmpleado,
-  crearReporte, eliminarReporte, eliminarTodosLosReportes,
+  crearReporte, eliminarReporte, eliminarTodosLosReportes, responderReporte,
   bloquearEmpleado, desbloquearEmpleado, alertasEmpleados, misReportes
 }
