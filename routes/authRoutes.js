@@ -15,25 +15,25 @@ import {
     reenviarVerificacion
 } from "../controllers/authController.js"
 
-import { limitadorLogin } from "../middleware/rateLimiter.js"
+import { limitadorLogin, limitadorPublico } from "../middleware/rateLimiter.js"
 
 const router = express.Router();
 
 router.post("/login", limitadorLogin, login);
-router.post("/register", register);
+router.post("/register", limitadorPublico, register);
 
 router.get("/google", googleAuth);
 router.get("/google/callback", googleCallback);
 
-router.post("/login-admin", loginAdmin);
+router.post("/login-admin", limitadorPublico, loginAdmin);
 
-router.post("/recuperar-password", solicitarRecuperacion);
-router.post("/reset-password", resetearContraseña);
+router.post("/recuperar-password", limitadorPublico, solicitarRecuperacion);
+router.post("/reset-password", limitadorPublico, resetearContraseña);
 
-router.post("/recuperar-password-admin", solicitarRecuperacionAdmin);
-router.post("/reset-password-admin", resetearContraseñaAdmin);
+router.post("/recuperar-password-admin", limitadorPublico, solicitarRecuperacionAdmin);
+router.post("/reset-password-admin", limitadorPublico, resetearContraseñaAdmin);
 
-router.post("/google-onetap", googleOneTap);
+router.post("/google-onetap", limitadorPublico, googleOneTap);
 
 router.get("/verificar-email", verificarEmailDisponible);
 router.get("/verificar-cuenta", verificarCuenta);

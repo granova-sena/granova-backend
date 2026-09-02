@@ -1,19 +1,34 @@
 import pool from "../config/db.js";
 import { crearSesionPago } from "../utils/pasarela.js";
+import { obtenerParametro } from "./admin/parametrosController.js";
+import { formatearNumeroPedido } from "../utils/formatearNumeroPedido.js";
 
 // ─────────────────────────────────────────
 // POST /api/pedidos (requiere token de cliente)
 // ─────────────────────────────────────────
 export const crearPedido = async (req, res) => {
 
-  const { id_cliente, metodo_pago, direccion_envio, ciudad_envio, productos, codigo_cupon } = req.body;
+  const { id_cliente, metodo_pago, direccion_envio, ciudad_envio, productos, codigo_cupon, sector_envio } = req.body;
 
   // Validación de campos obligatorios
-  if (!id_cliente || !metodo_pago || !direccion_envio || !ciudad_envio || !productos?.length) {
+  if (!id_cliente || !metodo_pago || !direccion_envio || !ciudad_envio || !Array.isArray(productos) || productos.length === 0) {
     return res.status(400).json({
       ok: false,
       mensaje: "Faltan campos obligatorios"
     });
+  }
+
+  if (Number.isNaN(Number(id_cliente))) {
+    return res.status(400).json({ ok: false, mensaje: "El id del cliente debe ser un número" });
+  }
+
+  // Tope de ítems: evita que un carrito gigante meta queries N+1 y sature la BD.
+  if (productos.length > 60) {
+    return res.status(400).json({ ok: false, mensaje: "Un pedido no puede tener más de 60 productos" });
+  }
+
+  if (String(direccion_envio).length > 200 || String(ciudad_envio).length > 100 || String(sector_envio || "").length > 100) {
+    return res.status(400).json({ ok: false, mensaje: "Dirección, ciudad o sector demasiado largos" });
   }
 
   // Solo el cliente dueño de la cuenta puede crear su pedido.
@@ -51,7 +66,7 @@ export const crearPedido = async (req, res) => {
 
     // Verificar que el cliente existe y traer su tipo (define qué precio aplica)
     const clienteExiste = await client.query(
-      `SELECT id_cliente, tipo_cliente, tipo_persona FROM clientes WHERE id_cliente = $1`,
+      `SELECT id_cliente, tipo_cliente, tipo_persona, unidades_acumuladas FROM clientes WHERE id_cliente = $1`,
       [id_cliente]
     );
 
@@ -64,8 +79,18 @@ export const crearPedido = async (req, res) => {
     }
 
     const esMayorista = clienteExiste.rows[0].tipo_cliente === 'mayorista';
-    // Personas jurídicas no usan cupones de lealtad: tienen su 10% de empresa
+    // Personas jurídicas no usan cupones de lealtad: tienen su descuento de
+    // empresa (configurable en la tabla parametros_cafe, default 15%).
     const esJuridica = clienteExiste.rows[0].tipo_persona === 'juridica';
+    const descuentoEmpresaPct = esJuridica
+      ? await obtenerParametro('descuento_empresa_pct', 15)
+      : 0;
+
+    // Premio de lealtad: cada 5 unidades acumuladas dan 10% (persona natural).
+    // Se liquida/consume cuando el pago se confirma (ver finalizarLealtad).
+    const acumuladoPrevio = Number(clienteExiste.rows[0].unidades_acumuladas) || 0;
+    const premioActivo = !esJuridica && acumuladoPrevio >= 5;
+    const pctPremio = premioActivo ? 10 : 0;
 
     // Verificar productos, stock y traer el precio real desde la BD.
     // El precio nunca se toma del body: si el cliente lo manda, se ignora.
@@ -153,9 +178,9 @@ export const crearPedido = async (req, res) => {
       : (totalUnidades >= UNIDADES_MINIMAS_DESCUENTO_MINORISTA ? DESCUENTO_MINORISTA : 0);
 
     // Aplicar "mayor gana" por producto: el descuento más alto entre volumen,
-    // promo y el 10% de empresa (personas jurídicas).
+    // promo, el descuento de empresa (personas jurídicas) y el premio de lealtad.
     for (const p of productosConPrecio) {
-      const pctGanador = Math.max(p.promo_pct || 0, pctVolumen, esJuridica ? 10 : 0);
+      const pctGanador = Math.max(p.promo_pct || 0, pctVolumen, descuentoEmpresaPct, pctPremio);
       const precioReal = pctGanador > 0
         ? Math.round(p.precio_base * (1 - pctGanador / 100))
         : p.precio_base;
@@ -163,7 +188,7 @@ export const crearPedido = async (req, res) => {
     }
 
     // ── Cupón: validar, bloquear, calcular descuento ──
-    // Las personas jurídicas no usan cupones (su beneficio es el 10% de empresa)
+    // Las personas jurídicas no usan cupones (su beneficio es el descuento de empresa)
     let cupon = null;
     let descuentoCuponMonto = 0;
     if (codigo_cupon && String(codigo_cupon).trim()) {
@@ -204,13 +229,25 @@ export const crearPedido = async (req, res) => {
 
     const total = subtotalSinCupon - descuentoCuponMonto;
 
-    // Estado inicial según método de pago (doc 01: estado_pago != estado).
-    // - Pasarela (tarjeta/pse/nequi/daviplata): el pedido nace pendiente y se
-    //   procesa el pago → 'confirmado' cuando la pasarela aprueba.
-    // - Transferencia/efectivo: verificación manual del empleado.
-    // - Contra entrega: se cobra al entregar.
+    // ── Operación: reparto (empresas/pedidos grandes) o domicilio ──
+    // Igual que MercadoLibre elige modalidad según el perfil: mayorista,
+    // empresa (jurídica) o volumen alto → reparto con vehículo; lo demás
+    // es domicilio. El despachador puede reclasificar a mano después.
+    const UMBRAL_UNIDADES_REPARTO = 20;
+    const UMBRAL_TOTAL_REPARTO = 500000;
+    const esReparto =
+      esMayorista || esJuridica ||
+      totalUnidades >= UMBRAL_UNIDADES_REPARTO ||
+      total >= UMBRAL_TOTAL_REPARTO;
+    const operacion = esReparto ? "reparto" : "domicilio";
+    const sector = String(sector_envio || "").trim() || null;
+
+    // Estado inicial: el pedido nace 'confirmado' (no hay Pendiente de fábrica).
+    // El estado_pago es independiente (doc 01): la pasarela lo paga al aprobar;
+    // manual (transferencia/efectivo) lo marca el panel y contra entrega lo
+    // confirma el cliente al recibir.
     const ES_PASARELA = ["tarjeta", "pse", "nequi", "daviplata"].includes(metodo_pago);
-    const estadoInicial = "pendiente";
+    const estadoInicial = "confirmado";
     const estadoPagoInicial =
       metodo_pago === "contra_entrega"
         ? "pendiente"
@@ -219,10 +256,10 @@ export const crearPedido = async (req, res) => {
     // Insertar pedido principal (con código_cupon para auditoría).
     // El cupón se marca usado (abajo); si el pago falla se devuelve el stock.
     const resultadoPedido = await client.query(
-      `INSERT INTO pedidos (id_cliente, metodo_pago, direccion_envio, ciudad_envio, total, descuento, codigo_cupon, estado, estado_pago)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO pedidos (id_cliente, metodo_pago, direccion_envio, ciudad_envio, total, descuento, codigo_cupon, estado, estado_pago, operacion, sector_envio)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING id_pedido`,
-      [id_cliente, metodo_pago, direccion_envio, ciudad_envio, total, descuentoCuponMonto, cupon ? cupon.codigo : null, estadoInicial, estadoPagoInicial]
+      [id_cliente, metodo_pago, direccion_envio, ciudad_envio, total, descuentoCuponMonto, cupon ? cupon.codigo : null, estadoInicial, estadoPagoInicial, operacion, sector]
     );
 
     const id_pedido = resultadoPedido.rows[0].id_pedido;
@@ -265,13 +302,9 @@ export const crearPedido = async (req, res) => {
       }
     }
 
-    // Marcar cupón como usado
-    if (cupon) {
-      await client.query(
-        `UPDATE cupones SET usado = true WHERE id_cupon = $1`,
-        [cupon.id_cupon]
-      );
-    }
+    // El cupón de este pedido se consume cuando el pago se confirma
+    // (pasarela aprobada o marca manual del panel), no al crear el pedido:
+    // así, si el pago falla, el cliente no pierde su cupón.
 
     await client.query("COMMIT");
 
@@ -284,12 +317,22 @@ export const crearPedido = async (req, res) => {
       ok: true,
       data: {
         id_pedido,
+        numero_pedido: formatearNumeroPedido(id_pedido),
         estado: estadoInicial,
         estado_pago: estadoPagoInicial,
+        operacion,
+        sector_envio: sector,
         total,
         pago: referenciaPago ? { referencia: referenciaPago, metodo_pago } : null,
         puntos_pendientes: esJuridica ? 0 : Math.floor(total / 1000),
         descuento_productos: productosConPrecio.reduce((acc, p) => acc + (p.precio_base - p.precio_unitario) * p.cantidad, 0),
+        descuento_empresa: esJuridica && descuentoEmpresaPct > 0,
+        ...(premioActivo && {
+          descuento_ganado: true,
+          descuento_fuente: 'premio',
+          unidades_acumuladas: acumuladoPrevio,
+        }),
+        ...(!premioActivo && { unidades_acumuladas: acumuladoPrevio }),
         ...(cupon && {
           descuento_aplicado: descuentoCuponMonto,
           descuento_fuente: 'cupon',
@@ -377,6 +420,7 @@ export const obtenerPedido = async (req, res) => {
       ok: true,
       data: {
         ...pedido.rows[0],
+        numero_pedido: formatearNumeroPedido(pedido.rows[0].id_pedido),
         productos: detalle.rows
       }
     });
@@ -412,6 +456,7 @@ export const obtenerPedidosCliente = async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 10));
   const offset = (page - 1) * limit;
+  const q = String(req.query.q || "").trim();
 
   try {
     const [resultado, total] = await Promise.all([
@@ -424,25 +469,54 @@ export const obtenerPedidosCliente = async (req, res) => {
            p.metodo_pago,
            p.direccion_envio,
            p.ciudad_envio,
+           p.operacion,
+           p.sector_envio,
            p.total
          FROM pedidos p
          WHERE p.id_cliente = $1
+           AND (
+             $4::text = ''
+             OR p.id_pedido::text ILIKE '%' || $4 || '%'
+             OR EXISTS (
+               SELECT 1 FROM detalle_pedidos dp
+               JOIN productos pr ON pr.id_producto = dp.id_producto
+               WHERE dp.id_pedido = p.id_pedido
+                 AND (pr.nombre ILIKE '%' || $4 || '%' OR pr.descripcion ILIKE '%' || $4 || '%')
+             )
+           )
          ORDER BY p.fecha_pedido DESC
          LIMIT $2 OFFSET $3`,
-        [id_cliente, limit, offset]
+        [id_cliente, limit, offset, q]
       ),
       pool.query(
-        `SELECT COUNT(*) FROM pedidos WHERE id_cliente = $1`,
-        [id_cliente]
+        `SELECT COUNT(*)
+         FROM pedidos p
+         WHERE p.id_cliente = $1
+           AND (
+             $2::text = ''
+             OR p.id_pedido::text ILIKE '%' || $2 || '%'
+             OR EXISTS (
+               SELECT 1 FROM detalle_pedidos dp
+               JOIN productos pr ON pr.id_producto = dp.id_producto
+               WHERE dp.id_pedido = p.id_pedido
+                 AND (pr.nombre ILIKE '%' || $2 || '%' OR pr.descripcion ILIKE '%' || $2 || '%')
+             )
+           )`,
+        [id_cliente, q]
       )
     ])
 
     const totalRows = Number(total.rows[0].count);
     const totalPages = Math.ceil(totalRows / limit);
 
+    const filas = resultado.rows.map((p) => ({
+      ...p,
+      numero_pedido: formatearNumeroPedido(p.id_pedido),
+    }));
+
     res.status(200).json({
       ok: true,
-      data: resultado.rows,
+      data: filas,
       paginacion: {
         page,
         limit,

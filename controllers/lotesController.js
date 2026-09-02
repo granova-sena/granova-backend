@@ -17,7 +17,7 @@ export const obtenerTrazabilidadLote = async (req, res) => {
          l.id_lote, l.codigo_lote, l.variedad, l.cantidad_kg, l.estado,
          f.id AS id_finca, f.nombre AS finca_nombre, f.region, f.altitud, f.lat, f.lng
        FROM lotes l
-       LEFT JOIN fincas f ON f.id = l.id_finca OR (l.id_finca IS NULL AND f.nombre = l.finca)
+       LEFT JOIN fincas f ON f.nombre = l.finca
        WHERE l.id_lote = $1`,
       [id]
     );
@@ -68,7 +68,7 @@ export const descargarCertificadoLote = async (req, res) => {
          l.codigo_lote, l.variedad, l.cantidad_kg,
          f.nombre AS finca_nombre, f.region, f.altitud
        FROM lotes l
-       LEFT JOIN fincas f ON f.id = l.id_finca OR (l.id_finca IS NULL AND f.nombre = l.finca)
+       LEFT JOIN fincas f ON f.nombre = l.finca
        WHERE l.id_lote = $1`,
       [id]
     );
@@ -189,22 +189,21 @@ export const descargarCertificadoLote = async (req, res) => {
 // ─────────────────────────────────────────
 export const crearLote = async (req, res) => {
   try {
-    const { codigo_lote, finca, id_finca, region, variedad, cantidad_kg } = req.body;
-    if (!codigo_lote || !finca || cantidad_kg === undefined) {
-      return res.status(400).json({ ok: false, error: "codigo_lote, finca y cantidad_kg son obligatorios" });
+    const { codigo_lote, finca, region, variedad, cantidad_kg } = req.body;
+    if (!codigo_lote || !String(codigo_lote).trim()) {
+      return res.status(400).json({ ok: false, error: "El código de lote es obligatorio" });
     }
-    let idFinca = Number(id_finca) || null;
-    if (!idFinca) {
-      const porNombre = await pool.query(
-        "SELECT id FROM fincas WHERE LOWER(nombre) = LOWER($1) LIMIT 1",
-        [finca]
-      );
-      idFinca = porNombre.rows[0]?.id || null;
+    if (!finca || !String(finca).trim()) {
+      return res.status(400).json({ ok: false, error: "La finca es obligatoria" });
+    }
+    const kg = Number(cantidad_kg);
+    if (!Number.isFinite(kg) || kg <= 0) {
+      return res.status(400).json({ ok: false, error: "cantidad_kg debe ser un número mayor que 0" });
     }
     const result = await pool.query(
-      `INSERT INTO lotes (codigo_lote, finca, id_finca, region, variedad, cantidad_kg, estado, fecha_registro)
-       VALUES ($1, $2, $3, $4, $5, $6, 'disponible', NOW()) RETURNING id_lote`,
-      [codigo_lote.trim(), finca, idFinca, region || null, variedad || null, Number(cantidad_kg)]
+      `INSERT INTO lotes (codigo_lote, finca, region, variedad, cantidad_kg, estado, fecha_registro)
+       VALUES ($1, $2, $3, $4, $5, 'disponible', NOW()) RETURNING id_lote`,
+      [codigo_lote.trim(), finca, region || null, variedad || null, kg]
     );
     res.json({ ok: true, id_lote: result.rows[0].id_lote });
   } catch (error) {
@@ -222,36 +221,93 @@ export const crearLote = async (req, res) => {
 export const actualizarLote = async (req, res) => {
   try {
     const { id } = req.params;
-
-    // La capacidad (cantidad_kg) NO se edita a mano: solo cambia registrando/
-    // anulando entregas (suma kg netos) o al confirmar un procesamiento
-    // (se descuenta el kg que se convierte en producto). Editar aquí pisaría
-    // la contabilidad real del lote.
-    if (req.body.cantidad_kg !== undefined) {
-      return res.status(400).json({
-        ok: false,
-        error: "La cantidad del lote no se edita a mano: solo cambia registrando o anulando entregas, y al procesar el lote. Revisa 'Control de lotes' antes de continuar."
-      });
+    if (Number.isNaN(Number(id))) {
+      return res.status(400).json({ ok: false, error: "El id del lote debe ser un número" });
     }
-
-    const { codigo_lote, region, variedad, estado } = req.body;
-    if (estado !== undefined && !["disponible", "agotado"].includes(estado)) {
-      return res.status(400).json({ ok: false, error: "Estado inválido. Usa 'disponible' o 'agotado'" });
+    const { codigo_lote, region, variedad, cantidad_kg, estado } = req.body;
+    if (cantidad_kg !== undefined && (!Number.isFinite(Number(cantidad_kg)) || Number(cantidad_kg) <= 0)) {
+      return res.status(400).json({ ok: false, error: "cantidad_kg debe ser un número mayor que 0" });
     }
     const result = await pool.query(
       `UPDATE lotes SET
          codigo_lote = COALESCE($1, codigo_lote),
          region = COALESCE($2, region),
          variedad = COALESCE($3, variedad),
-         estado = COALESCE($4, estado)
-       WHERE id_lote = $5 RETURNING id_lote`,
-      [codigo_lote || null, region || null, variedad || null, estado || null, id]
+         cantidad_kg = COALESCE($4, cantidad_kg),
+         estado = COALESCE($5, estado)
+       WHERE id_lote = $6 RETURNING id_lote`,
+      [codigo_lote || null, region || null, variedad || null,
+       cantidad_kg !== undefined ? Number(cantidad_kg) : null, estado || null, id]
     );
     if (result.rows.length === 0) return res.status(404).json({ ok: false, error: "Lote no encontrado" });
     res.json({ ok: true });
   } catch (error) {
     console.error(error);
     res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+// ─────────────────────────────────────────
+// DELETE /inventario/lotes/:id - eliminar lote (empleado)
+// Solo permite lotes sin actividad: sin productos activos, sin procesamientos,
+// sin cosechas planeadas en curso y sin entregas registradas.
+// ─────────────────────────────────────────
+export const eliminarLote = async (req, res) => {
+  const { id } = req.params;
+
+  if (Number.isNaN(Number(id))) {
+    return res.status(400).json({ ok: false, error: "El id del lote debe ser un número" });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const existe = await client.query(`SELECT codigo_lote FROM lotes WHERE id_lote = $1`, [id]);
+    if (existe.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ ok: false, error: "Lote no encontrado" });
+    }
+
+    const bloqueos = await client.query(
+      `SELECT
+         (SELECT COUNT(*) FROM productos p WHERE p.id_lote = $1 AND p.estado = 'activo') AS productos,
+         (SELECT COUNT(*) FROM procesamientos_lote pl WHERE pl.id_lote = $1) AS procesamientos,
+         (SELECT COUNT(*) FROM cosechas_planeadas cp WHERE cp.id_lote = $1 AND cp.estado != 'cancelada') AS cosechas,
+         (SELECT COUNT(*) FROM entregas_finca ef WHERE ef.id_lote = $1 AND ef.estado != 'anulada') AS entregas`,
+      [id]
+    );
+
+    const b = bloqueos.rows[0];
+    const razones = [
+      Number(b.productos) > 0 && "productos activos",
+      Number(b.procesamientos) > 0 && "procesamientos registrados",
+      Number(b.cosechas) > 0 && "cosechas planeadas en curso",
+      Number(b.entregas) > 0 && "entregas registradas",
+    ].filter(Boolean);
+
+    if (razones.length > 0) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        error: `El lote no se puede eliminar: tiene ${razones.join(", ")}. Elimina primero esos registros o edítalo para dejarlo sin actividad.`,
+      });
+    }
+
+    await client.query(`DELETE FROM eventos_lote WHERE id_lote = $1`, [id]);
+    await client.query(`DELETE FROM lotes WHERE id_lote = $1 RETURNING id_lote`, [id]);
+    await client.query("COMMIT");
+
+    res.json({ ok: true });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error(error);
+    if (error.code === "23503") {
+      return res.status(409).json({ ok: false, error: "El lote tiene registros relacionados que impiden eliminarlo." });
+    }
+    res.status(500).json({ ok: false, error: error.message });
+  } finally {
+    client.release();
   }
 };
 
@@ -264,6 +320,10 @@ export const actualizarLote = async (req, res) => {
 export const registrarEventoLote = async (req, res) => {
   const { id } = req.params;
   const { tipo_evento, descripcion, ubicacion, fecha } = req.body;
+
+  if (Number.isNaN(Number(id))) {
+    return res.status(400).json({ ok: false, error: "El id del lote debe ser un número" });
+  }
 
   const TIPOS_PERMITIDOS = ["cosecha", "procesado", "tostado", "envasado", "enviado", "entregado"];
   if (!TIPOS_PERMITIDOS.includes(tipo_evento)) {

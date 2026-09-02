@@ -1,6 +1,7 @@
 import express from "express"
 import "dotenv/config"
 import cors from "cors"
+import helmet from "helmet"
 import dns from "node:dns"
 
 // Railway no soporta IPv6 — forzamos IPv4 para Gmail y APIs externas
@@ -25,6 +26,9 @@ import lotesRoutes     from "./routes/lotesRoutes.js"
 import resenasRoutes   from "./routes/resenasRoutes.js"
 import notificacionesRoutes from "./routes/notificacionesRoutes.js"
 import pagosRoutes from "./routes/pagosRoutes.js"
+import despachoRoutes from "./routes/despachoRoutes.js"
+import parametrosPublicosRoutes from "./routes/parametrosPublicosRoutes.js"
+import wompiRoutes from "./routes/wompiRoutes.js"
 
 // Rutas admin (Daniel)
 import dashboardRoutes    from "./routes/admin/dashboardRoutes.js"
@@ -38,15 +42,21 @@ import resenasAdminRoutes from "./routes/admin/resenasRoutes.js"
 import usuariosAdminRoutes from "./routes/admin/usuariosRoutes.js"
 import reportesRoutes from "./routes/admin/reportes.js"
 import empleadosRoutes from "./routes/admin/empleadosRoutes.js"
+import cotizacionesRoutes from "./routes/cotizacionesRoutes.js"
+import cotizacionesAdminRoutes from "./routes/admin/cotizacionesRoutes.js"
 
 const app    = express()
 const puerto = process.env.PORT || 3000
 
 app.set('trust proxy', 1)
+
+// Orígenes permitidos: frontend web (www + raíz) y el dominio de la API
+// (por si algún día se consulta directo desde https://api.granovaoficial.com).
 const origenesPermitidos = [
   'http://localhost:5173',
   'https://www.granovaoficial.com',
-  'https://granovaoficial.com'
+  'https://granovaoficial.com',
+  'https://api.granovaoficial.com'
 ];
 
 app.use(cors({
@@ -55,7 +65,19 @@ app.use(cors({
 }));
 
 app.disable('x-powered-by')
-app.use(express.json())
+// Helmet: cabeceras de seguridad (CSP, HSTS, X-Content-Type-Options, etc.)
+app.use(helmet())
+// Límite de body: un payload gigante rompería la memoria (pedidos, ventas, reseñas).
+app.use(express.json({ limit: "1mb" }))
+app.use(express.urlencoded({ extended: true, limit: "1mb" }))
+
+// JSON mal formado → 400 en vez de romper la app
+app.use((err, _req, res, next) => {
+  if (err?.type === "entity.parse.failed" || err?.type === "entity.too.large") {
+    return res.status(400).json({ ok: false, mensaje: "El cuerpo de la petición no es válido o es demasiado grande" })
+  }
+  return next(err)
+})
 
 // Rutas cliente
 app.use("/auth",      authRoutes)
@@ -79,6 +101,9 @@ app.use("/api/correo",    correoRoutes)
 app.use("/api/resenas",   resenasRoutes)
 app.use("/api/notificaciones", notificacionesRoutes)
 app.use("/api/pagos",    pagosRoutes)
+app.use("/api/despachos", despachoRoutes)
+app.use("/api/wompi",    wompiRoutes)
+app.use("/api/public/parametros", parametrosPublicosRoutes)
 
 // Rutas admin
 app.use("/api/dashboard", dashboardRoutes)
@@ -92,6 +117,8 @@ app.use("/api/admin/resenas", resenasAdminRoutes)
 app.use("/api/usuarios",   usuariosAdminRoutes)
 app.use("/api/reportes",   reportesRoutes)
 app.use("/api/empleados",  empleadosRoutes)
+app.use("/api/admin/cotizaciones", cotizacionesAdminRoutes)
+app.use("/api/cotizaciones", cotizacionesRoutes)
 
 
 app.get("/", (req, res) => {

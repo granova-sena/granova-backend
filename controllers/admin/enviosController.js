@@ -33,6 +33,9 @@ const crearEnvio = async (req, res) => {
     if (!producto?.trim() || !peso || !origen?.trim() || !destino?.trim() || !destinatario?.trim() || !fecha_estimada) {
       return res.status(400).json({ ok: false, error: "Completa producto, peso, origen, destino, destinatario y fecha estimada" })
     }
+    if (!Number.isFinite(Number(peso)) || Number(peso) <= 0) {
+      return res.status(400).json({ ok: false, error: "El peso debe ser un número mayor que 0" })
+    }
     const numero_guia = await siguienteGuia()
     const result = await pool.query(
       `INSERT INTO envios (numero_guia, producto, peso, origen, destino, id_transportadora, destinatario, fecha_estimada, estado, creado_por)
@@ -50,6 +53,7 @@ const crearEnvio = async (req, res) => {
 const actualizarEnvio = async (req, res) => {
   try {
     const { id } = req.params
+    if (Number.isNaN(Number(id))) return res.status(400).json({ ok: false, error: "Id inválido" })
     const { producto, peso, origen, destino, id_transportadora, destinatario, fecha_estimada, estado } = req.body
     const result = await pool.query(
       `UPDATE envios SET
@@ -72,7 +76,8 @@ const actualizarEnvio = async (req, res) => {
 const eliminarEnvio = async (req, res) => {
   try {
     const { id } = req.params
-    const result = await pool.query(`DELETE FROM envios WHERE id_envio = $1 RETURNING id_envio`, [id])
+    if (Number.isNaN(Number(id))) return res.status(400).json({ ok: false, error: "Id inválido" })
+    const result = await pool.query(`DELETE FROM envios WHERE id_envio = $1 RETURNING id_envio`, [Number(id)])
     if (result.rows.length === 0) return res.status(404).json({ ok: false, error: "Envío no encontrado" })
     res.json({ ok: true })
   } catch (error) {

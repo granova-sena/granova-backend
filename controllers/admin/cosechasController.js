@@ -42,7 +42,7 @@ const crearCosecha = async (req, res) => {
         return res.status(400).json({ ok: false, error: "Cada reparto necesita id_presentacion y una cantidad válida" })
       }
       const pres = await client.query(
-        `SELECT kg_equivalente FROM presentaciones_catalogo WHERE id_presentacion = $1 AND activo = true`,
+        `SELECT kg_equivalente FROM presentaciones_catalogo WHERE id_presentacion = $1`,
         [r.id_presentacion]
       )
       if (pres.rows.length === 0) {
@@ -79,11 +79,10 @@ const crearCosecha = async (req, res) => {
       })
     }
 
-    const origen = marcarEnProceso ? 'proceso-lote' : 'cosecha'
     const cosecha = await client.query(
-      `INSERT INTO cosechas_planeadas (id_finca, id_lote, kg_estimados, tipo_cafe, valor_estimado, planeado_por, origen)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id_cosecha`,
-      [id_finca, id_lote, Number(kg_estimados), tipo, Number(valor_estimado), req.usuario.id, origen]
+      `INSERT INTO cosechas_planeadas (id_finca, id_lote, kg_estimados, tipo_cafe, valor_estimado, planeado_por)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id_cosecha`,
+      [id_finca, id_lote, Number(kg_estimados), tipo, Number(valor_estimado), req.usuario.id]
     )
 
     for (const r of repartos) {
@@ -118,7 +117,7 @@ const listarCosechas = async (req, res) => {
     const { estado } = req.query
     const cosechas = await pool.query(
       `SELECT c.id_cosecha, c.kg_estimados, c.tipo_cafe, c.valor_estimado, c.estado,
-              c.origen, c.fecha_planeada, c.fecha_confirmada,
+              c.fecha_planeada, c.fecha_confirmada,
               f.id AS id_finca, f.nombre AS finca_nombre,
               l.id_lote, l.codigo_lote,
               up.nombre AS planeado_por_nombre, uc.nombre AS confirmado_por_nombre
@@ -151,54 +150,18 @@ const listarCosechas = async (req, res) => {
 }
 
 // PATCH /inventario/cosechas/:id/cancelar
-// Al cancelar una planeada que vino de "Procesar lote" (origen 'proceso-lote'),
-// el kg que quedó retenido en "en proceso" vuelve a estar disponible: nada de
-// ese café se materializó todavía, así que el lote recupera su capacidad.
 const cancelarCosecha = async (req, res) => {
-  const client = await pool.connect()
   try {
     const { id } = req.params
-    await client.query("BEGIN")
-    const result = await client.query(
-      `UPDATE cosechas_planeadas SET estado = 'cancelada'
-       WHERE id_cosecha = $1 AND estado = 'planeada'
-       RETURNING id_cosecha, id_lote, origen`,
+    const result = await pool.query(
+      `UPDATE cosechas_planeadas SET estado = 'cancelada' WHERE id_cosecha = $1 AND estado = 'planeada' RETURNING id_cosecha`,
       [id]
     )
-    if (result.rows.length === 0) {
-      await client.query("ROLLBACK")
-      return res.status(404).json({ ok: false, error: "Cosecha no encontrada o ya no está planeada" })
-    }
-    const cancelada = result.rows[0]
-
-    if (cancelada.origen === 'proceso-lote' && cancelada.id_lote) {
-      const detalle = await client.query(
-        `SELECT cd.cantidad, pc.kg_equivalente
-         FROM cosecha_detalle cd
-         JOIN presentaciones_catalogo pc ON pc.id_presentacion = cd.id_presentacion
-         WHERE cd.id_cosecha = $1`,
-        [id]
-      )
-      const kgPlaneado = detalle.rows.reduce(
-        (suma, d) => suma + Number(d.cantidad) * Number(d.kg_equivalente || 0),
-        0
-      )
-      if (kgPlaneado > 0) {
-        await client.query(
-          `UPDATE lotes SET kg_en_proceso = GREATEST(kg_en_proceso - $1, 0) WHERE id_lote = $2`,
-          [kgPlaneado, cancelada.id_lote]
-        )
-      }
-    }
-
-    await client.query("COMMIT")
+    if (result.rows.length === 0) return res.status(404).json({ ok: false, error: "Cosecha no encontrada o ya no está planeada" })
     res.json({ ok: true })
   } catch (error) {
-    await client.query("ROLLBACK")
     console.error(error)
     res.status(500).json({ ok: false, error: error.message })
-  } finally {
-    client.release()
   }
 }
 
@@ -244,17 +207,6 @@ const confirmarCosecha = async (req, res) => {
       [id]
     )
 
-    // 'proceso-lote' = el café ya estaba pesado en el lote (Control de
-    // Inventario -> Procesar lote). Al confirmar NO se registra entrega nueva
-    // ni se suma kg: el kg real que se convierte en producto se DESCUENTA de
-    // la capacidad del lote. El kg real consumido es la suma exacta del
-    // reparto (cantidad × kg_equivalente), el mismo que quedó "en proceso".
-    const esProcesoLote = cosecha.origen === 'proceso-lote'
-    const kgConsumido = detalleRes.rows.reduce(
-      (suma, d) => suma + Number(d.cantidad) * Number(d.kg_equivalente || 0),
-      0
-    )
-
     const pctQuedaCereza = 100 - (await obtenerParametro('merma_cereza_pergamino_pct', 22))
     const pctQuedaTueste = 100 - (await obtenerParametro('merma_pergamino_tostado_pct', 18))
     const kgNetos = cosecha.tipo_cafe === 'cereza'
@@ -263,31 +215,25 @@ const confirmarCosecha = async (req, res) => {
 
     // 1. Registrar la entrega real (bloquea el lote con FOR UPDATE para
     //    que dos empleados no puedan confirmar/procesar el mismo lote
-    //    a la vez y desalinear el kg disponible).
-    //    SOLO aplica al café que de verdad llega ('cosecha'); el café que
-    //    viene de "Procesar lote" ya estaba contabilizado en el lote.
+    //    a la vez y desalinear el kg disponible)
     const lote = await client.query(`SELECT id_lote FROM lotes WHERE id_lote = $1 FOR UPDATE`, [cosecha.id_lote])
     if (lote.rows.length === 0) {
       await client.query("ROLLBACK")
       return res.status(404).json({ ok: false, error: "El lote de esta cosecha ya no existe" })
     }
 
-    let idEntrega = null
-    if (!esProcesoLote) {
-      const entrega = await client.query(
-        `INSERT INTO entregas_finca (id_finca, id_lote, cantidad_kg, kg_netos, valor, tipo_cafe, registrado_por)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id_entrega`,
-        [cosecha.id_finca, cosecha.id_lote, cosecha.kg_estimados, kgNetos, cosecha.valor_estimado, cosecha.tipo_cafe, req.usuario.id]
-      )
-      idEntrega = entrega.rows[0].id_entrega
+    const entrega = await client.query(
+      `INSERT INTO entregas_finca (id_finca, id_lote, cantidad_kg, kg_netos, valor, tipo_cafe, registrado_por)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id_entrega`,
+      [cosecha.id_finca, cosecha.id_lote, cosecha.kg_estimados, kgNetos, cosecha.valor_estimado, cosecha.tipo_cafe, req.usuario.id]
+    )
 
-      await client.query(
-        `UPDATE lotes SET cantidad_kg = cantidad_kg + $1,
-         estado = CASE WHEN estado = 'agotado' THEN 'disponible' ELSE estado END
-         WHERE id_lote = $2`,
-        [kgNetos, cosecha.id_lote]
-      )
-    }
+    await client.query(
+      `UPDATE lotes SET cantidad_kg = cantidad_kg + $1,
+       estado = CASE WHEN estado = 'agotado' THEN 'disponible' ELSE estado END
+       WHERE id_lote = $2`,
+      [kgNetos, cosecha.id_lote]
+    )
 
     // 2. Procesar el reparto que ya se había planeado (mismo criterio que
     //    Procesar Lote: sumar si el producto existe, crearlo si no)
@@ -303,13 +249,9 @@ const confirmarCosecha = async (req, res) => {
     const loteInfo = await client.query(`SELECT codigo_lote, finca, variedad FROM lotes WHERE id_lote = $1`, [cosecha.id_lote])
     const { codigo_lote, finca: fincaNombre, variedad } = loteInfo.rows[0]
 
-    // kg que se registran como "procesados" en el historial: para 'proceso-lote'
-    // es el kg neto exacto del reparto (ya está descontado el café crudo), NO
-    // volver a aplicar la merma sobre un kg_estimados que ya es neto.
-    const kgProcesado = esProcesoLote ? kgConsumido : kgNetos
     const procesamiento = await client.query(
       `INSERT INTO procesamientos_lote (id_lote, kg_utilizados, procesado_por) VALUES ($1, $2, $3) RETURNING id_procesamiento`,
-      [cosecha.id_lote, kgProcesado, req.usuario.id]
+      [cosecha.id_lote, kgNetos, req.usuario.id]
     )
 
     for (const d of detalleRes.rows) {
@@ -361,24 +303,20 @@ const confirmarCosecha = async (req, res) => {
       )
     }
 
-    // El kg ya se convirtió en producto y deja de ser café "crudo" del lote.
-    // Si venía de "Procesar lote" ese kg YA estaba contabilizado en la
-    // capacidad: se DESCUENTA cantidad_kg (y se libera de "en proceso").
-    // Si venía de una cosecha planeada ('cosecha'), primero se sumó como
-    // entrega y ahora se resta al convertirlo: neto 0 en el lote.
-    const kgDescontar = esProcesoLote ? kgConsumido : kgNetos
+    // El kg ya se convirtió en producto: deja de estar "disponible" del lote
+    // y, si venía marcado "en proceso" (flujo Procesar lote), se libera.
     await client.query(
       `UPDATE lotes SET
-         cantidad_kg = GREATEST(cantidad_kg - $1, 0),
+         cantidad_kg = cantidad_kg - $1,
          kg_en_proceso = GREATEST(kg_en_proceso - $1, 0)
        WHERE id_lote = $2`,
-      [kgDescontar, cosecha.id_lote]
+      [kgNetos, cosecha.id_lote]
     )
 
     await client.query(
       `UPDATE cosechas_planeadas SET estado = 'confirmada', confirmado_por = $1, fecha_confirmada = NOW(), id_entrega = $2
        WHERE id_cosecha = $3`,
-      [req.usuario.id, idEntrega, id]
+      [req.usuario.id, entrega.rows[0].id_entrega, id]
     )
 
     await client.query("COMMIT")

@@ -11,7 +11,7 @@ export const obtenerNotificaciones = async (req, res) => {
     const resultado = await pool.query(
       `SELECT id_notificacion, tipo, titulo, mensaje, id_pedido, leida, fecha
        FROM notificaciones
-       WHERE id_cliente = $1
+       WHERE id_cliente = $1 AND leida = false
        ORDER BY fecha DESC
        LIMIT 30`,
       [id_cliente]
@@ -33,7 +33,8 @@ export const obtenerNotificaciones = async (req, res) => {
   }
 };
 
-// PATCH /api/notificaciones/:id/leida — marca una notificación como leída
+// PATCH /api/notificaciones/:id/leida — al leerse desaparece de la bandeja.
+// Las de tipo 'reseña' persisten hasta que el cliente reseñe el pedido.
 export const marcarLeida = async (req, res) => {
   const id_cliente = req.usuario?.id;
   const { id } = req.params;
@@ -46,13 +47,23 @@ export const marcarLeida = async (req, res) => {
   }
 
   try {
-    const resultado = await pool.query(
-      `UPDATE notificaciones SET leida = true WHERE id_notificacion = $1 AND id_cliente = $2 RETURNING id_notificacion`,
+    const existente = await pool.query(
+      `SELECT tipo FROM notificaciones WHERE id_notificacion = $1 AND id_cliente = $2`,
       [id, id_cliente]
     );
-    if (resultado.rows.length === 0) {
+    if (existente.rows.length === 0) {
       return res.status(404).json({ ok: false, mensaje: "Notificación no encontrada" });
     }
+
+    if (existente.rows[0].tipo === "reseña") {
+      // Recordatorio de reseña: se mantiene hasta que el cliente reseñe.
+      return res.status(200).json({ ok: true });
+    }
+
+    await pool.query(
+      `DELETE FROM notificaciones WHERE id_notificacion = $1 AND id_cliente = $2`,
+      [id, id_cliente]
+    );
     res.status(200).json({ ok: true });
   } catch (error) {
     console.error("Error marcando notificación:", error.message);
@@ -60,7 +71,7 @@ export const marcarLeida = async (req, res) => {
   }
 };
 
-// PATCH /api/notificaciones/leer-todas — marca todas como leídas
+// PATCH /api/notificaciones/leer-todas — limpia la bandeja (conservando reseñas)
 export const marcarTodasLeidas = async (req, res) => {
   const id_cliente = req.usuario?.id;
   if (!id_cliente) {
@@ -69,7 +80,7 @@ export const marcarTodasLeidas = async (req, res) => {
 
   try {
     await pool.query(
-      `UPDATE notificaciones SET leida = true WHERE id_cliente = $1 AND leida = false`,
+      `DELETE FROM notificaciones WHERE id_cliente = $1 AND leida = false AND tipo <> 'reseña'`,
       [id_cliente]
     );
     res.status(200).json({ ok: true });

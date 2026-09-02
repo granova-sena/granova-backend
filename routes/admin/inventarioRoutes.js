@@ -4,7 +4,7 @@ import {
   crearProducto, actualizarProducto, importarProductos, restablecerProducto, eliminarProducto
 } from "../../controllers/admin/inventarioController.js"
 import { crearFinca, actualizarFinca, cambiarEstadoFinca } from "../../controllers/fincasController.js"
-import { crearLote, actualizarLote, registrarEventoLote } from "../../controllers/lotesController.js"
+import { crearLote, actualizarLote, eliminarLote, registrarEventoLote } from "../../controllers/lotesController.js"
 import { crearEntrega, listarEntregas, marcarPagado, anularEntrega } from "../../controllers/admin/entregasFincaController.js"
 import { listarParametros, actualizarParametro } from "../../controllers/admin/parametrosController.js"
 import { listarPresentaciones, crearPresentacion, actualizarPresentacion } from "../../controllers/admin/presentacionesController.js"
@@ -40,7 +40,7 @@ router.post("/productos", puedeEditar, crearProducto)
 router.patch("/productos/:id", puedeEditar, actualizarProducto)
 router.put("/productos/:id", puedeEditar, actualizarProducto)
 router.post("/productos/importar", puedeEditar, importarProductos)
-router.patch("/productos/:id/restablecer", puedeEditar, restablecerProducto)
+router.patch("/productos/:id/restablecer", verificarRol(["admin"]), restablecerProducto)
 router.patch("/productos/:id/eliminar", puedeEditar, eliminarProducto)
 
 router.post("/fincas", puedeEditar, crearFinca)
@@ -49,6 +49,7 @@ router.patch("/fincas/:id/estado", puedeEditar, cambiarEstadoFinca)
 
 router.post("/lotes", puedeEditar, crearLote)
 router.patch("/lotes/:id", puedeEditar, actualizarLote)
+router.delete("/lotes/:id", puedeEditar, eliminarLote)
 router.post("/lotes/:id/eventos", puedeEditar, registrarEventoLote)
 router.patch("/lotes/:id/perdida-proceso", puedeEditar, actualizarPerdidaProceso)
 router.patch("/lotes/:id/liberar-proceso", puedeEditar, liberarProceso)
@@ -62,7 +63,7 @@ router.post("/cosechas", puedeEditar, crearCosecha)
 router.patch("/cosechas/:id/cancelar", puedeEditar, cancelarCosecha)
 router.patch("/cosechas/:id/confirmar", puedeEditar, confirmarCosecha)
 
-router.patch("/parametros/:clave", puedeEditar, actualizarParametro)
+router.patch("/parametros/:clave", verificarRol(["admin", "empleado"]), actualizarParametro)
 router.post("/presentaciones", puedeEditar, crearPresentacion)
 router.patch("/presentaciones/:id", puedeEditar, actualizarPresentacion)
 

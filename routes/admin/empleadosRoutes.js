@@ -2,23 +2,24 @@ import { Router } from "express"
 import {
   listarEmpleados, obtenerEmpleado, crearEmpleado,
   actualizarEmpleado, resetearPasswordEmpleado, eliminarEmpleado,
-  crearReporte, eliminarReporte, eliminarTodosLosReportes, responderReporte,
-  bloquearEmpleado, desbloquearEmpleado, alertasEmpleados, misReportes
+  crearReporte, eliminarReporte, eliminarTodosLosReportes,
+  bloquearEmpleado, desbloquearEmpleado, alertasEmpleados, misReportes, responderReporte,
+  todasRespuestas
 } from "../../controllers/admin/empleadosController.js"
 import { verificarToken } from "../../middleware/verificarToken.js"
 import { verificarRol } from "../../middleware/verificarRol.js"
-import { verificarActivo } from "../../middleware/verificarActivo.js"
 
 const router = Router()
 
 // El propio empleado ve sus reportes (antes de la barrera de "solo admin")
-router.get("/mis-reportes", verificarToken, verificarActivo, verificarRol(["empleado"]), misReportes)
-router.post("/mis-reportes/:idReporte/responder", verificarToken, verificarActivo, verificarRol(["empleado"]), responderReporte)
+router.get("/mis-reportes", verificarToken, verificarRol(["empleado"]), misReportes)
+router.post("/mis-reportes/:idReporte/responder", verificarToken, verificarRol(["empleado"]), responderReporte)
 
-router.use(verificarToken, verificarActivo, verificarRol(["admin"]))
+router.use(verificarToken, verificarRol(["admin"]))
 
 router.get("/", listarEmpleados)
 router.get("/alertas", alertasEmpleados)
+router.get("/todas-respuestas", todasRespuestas)
 router.get("/:id", obtenerEmpleado)
 router.post("/", crearEmpleado)
 router.patch("/:id", actualizarEmpleado)

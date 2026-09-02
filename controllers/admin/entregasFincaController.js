@@ -101,10 +101,11 @@ const listarEntregas = async (req, res) => {
 const marcarPagado = async (req, res) => {
   try {
     const { id } = req.params
+    if (Number.isNaN(Number(id))) return res.status(400).json({ ok: false, error: "Id inválido" })
     const result = await pool.query(
       `UPDATE entregas_finca SET estado_pago = 'pagado', pagado_por = $1, fecha_pago = NOW()
        WHERE id_entrega = $2 AND estado = 'registrada' RETURNING id_entrega`,
-      [req.usuario.id, id]
+      [req.usuario.id, Number(id)]
     )
     if (result.rows.length === 0) return res.status(404).json({ ok: false, error: "Entrega no encontrada" })
     res.json({ ok: true })
@@ -119,11 +120,12 @@ const anularEntrega = async (req, res) => {
   const client = await pool.connect()
   try {
     const { id } = req.params
+    if (Number.isNaN(Number(id))) return res.status(400).json({ ok: false, error: "Id inválido" })
 
     await client.query("BEGIN")
     const entrega = await client.query(
       `SELECT id_lote, kg_netos FROM entregas_finca WHERE id_entrega = $1 AND estado = 'registrada'`,
-      [id]
+      [Number(id)]
     )
     if (entrega.rows.length === 0) {
       await client.query("ROLLBACK")

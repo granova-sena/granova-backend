@@ -1,5 +1,12 @@
 import transportador from "../config/email.js"
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+
+const escapeHtml = (valor) =>
+  String(valor ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]))
+
 // ─────────────────────────────────────────────────────────────
 // POST /api/correo/cotizacion
 // Envía la cotización por correo al cliente
@@ -14,11 +21,19 @@ export const enviarCotizacion = async (req, res) => {
     })
   }
 
-  const filasProductos = productos.map(p => `
+  if (!EMAIL_REGEX.test(String(email))) {
+    return res.status(400).json({ ok: false, mensaje: "El correo no es válido" })
+  }
+
+  if (!Array.isArray(productos) || productos.length > 60) {
+    return res.status(400).json({ ok: false, mensaje: "Lista de productos inválida" })
+  }
+
+  const filasProductos = productos.slice(0, 60).map(p => `
     <tr>
-      <td style="padding: 8px; border-bottom: 1px solid #e7e7e7;">${p.nombre}</td>
-      <td style="padding: 8px; border-bottom: 1px solid #e7e7e7;">${p.presentacion || '-'}</td>
-      <td style="padding: 8px; border-bottom: 1px solid #e7e7e7;">${p.cantidad}</td>
+      <td style="padding: 8px; border-bottom: 1px solid #e7e7e7;">${escapeHtml(p.nombre)}</td>
+      <td style="padding: 8px; border-bottom: 1px solid #e7e7e7;">${escapeHtml(p.presentacion || '-')}</td>
+      <td style="padding: 8px; border-bottom: 1px solid #e7e7e7;">${escapeHtml(p.cantidad)}</td>
       <td style="padding: 8px; border-bottom: 1px solid #e7e7e7;">$${Number(p.precio).toLocaleString()}</td>
       <td style="padding: 8px; border-bottom: 1px solid #e7e7e7;">$${(Number(p.precio) * p.cantidad).toLocaleString()}</td>
     </tr>
@@ -31,7 +46,7 @@ export const enviarCotizacion = async (req, res) => {
         <p style="color: #D4C49A; margin: 5px 0 0;">Cotización de productos${numero ? ` · N° ${numero}` : ''}</p>
       </div>
       <div style="padding: 24px;">
-        <p>Hola <strong>${nombre}</strong>,</p>
+        <p>Hola <strong>${escapeHtml(nombre)}</strong>,</p>
         <p>Adjuntamos la cotización que solicitaste:</p>
         <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
           <thead>

@@ -13,8 +13,8 @@ const router = Router()
 
 router.use(verificarToken, verificarActivo)
 
-const puedeVer = verificarRol(["admin", "empleado"])
-const puedeEditar = verificarRol(["empleado"])
+const puedeVer = verificarRol(["admin", "empleado", "logistica"])
+const puedeEditar = verificarRol(["empleado", "logistica"])
 
 router.get("/transportadoras", puedeVer, listarTransportadoras)
 router.post("/transportadoras", puedeEditar, crearTransportadora)

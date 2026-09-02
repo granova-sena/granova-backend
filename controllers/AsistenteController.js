@@ -1,7 +1,9 @@
-const N8N_WEBHOOK_URL = "https://n8n-production-aacb.up.railway.app/webhook/granova-chat"
+// Webhooks de n8n del asistente. Vienen de las variables de entorno
+// (N8N_WEBHOOK_URL y N8N_WEBHOOK_URL_CLIENTE en Railway/.env) para no
+// pisar dominios hardcodeados cuando cambie el despliegue.
+const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || "https://n8n-production-aacb.up.railway.app/webhook/granova-chat"
 
-// Daniel: pega aquí la URL del webhook de n8n del asistente de CLIENTE.
-const N8N_WEBHOOK_URL_CLIENTE = "https://n8n-production-aacb.up.railway.app/webhook/Chat-Cliente"
+const N8N_WEBHOOK_URL_CLIENTE = process.env.N8N_WEBHOOK_URL_CLIENTE || "https://n8n-production-aacb.up.railway.app/webhook/Chat-Cliente"
 
 
 export async function chatConAsistente(req, res) {
@@ -10,6 +12,9 @@ export async function chatConAsistente(req, res) {
 
         if (!mensaje) {
             return res.status(400).json({ error: "El mensaje es obligatorio" })
+        }
+        if (String(mensaje).length > 2000) {
+            return res.status(400).json({ error: "El mensaje no puede superar los 2000 caracteres" })
         }
 
         const respuestaN8n = await fetch(N8N_WEBHOOK_URL, {
@@ -61,6 +66,9 @@ export async function chatConAsistenteCliente(req, res) {
 
         if (!mensaje) {
             return res.status(400).json({ error: "El mensaje es obligatorio" })
+        }
+        if (String(mensaje).length > 2000) {
+            return res.status(400).json({ error: "El mensaje no puede superar los 2000 caracteres" })
         }
 
         const respuestaN8n = await fetch(N8N_WEBHOOK_URL_CLIENTE, {

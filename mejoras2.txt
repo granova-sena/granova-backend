@@ -1,7 +1,51 @@
-[11:02 p. m., 25/8/2026] Rocha: En control de inventario: 
-Cuando actualiza debería salir solo el boton de perdido y no el de kg en proceso ya que se debe descontar al kg que se muestra hay y no a la db por q ese café se encuentra en catálogo y no debería haber pérdidas en café que ya está en catálogo, que el kg disponible sea igual al que se muestra en la columna y cuando se procede el lote salga en el lote en proceso y lo mandé a cosechar planeadas el cual muestra hay cuando le precione en agregar lo sume a los productos del catálogo
-[11:02 p. m., 25/8/2026] Rocha: Es más alargue de palabras q cosa por hacer
-[11:03 p. m., 25/8/2026] Rocha: En control de inventario: 
-Cuando actualiza debería salir solo el boton de perdido y no el de kg en proceso ya que se debe descontar al kg que se muestra hay y no a la db por q ese café se encuentra en catálogo y no debería haber pérdidas en café que ya está en catálogo, que el kg disponible sea igual al que se muestra en la columna y cuando se procede el lote salga en el lote en proceso y lo mandé a cosechar planeadas el cual muestra hay cuando le precione en agregar lo sume a los productos del catálogo
-Y permita ver en un menu los reportes los cuales les han mandado
-Eso para el usuario y el admin que cuando le de en reporte le muestre un cuadro para escribir el reporte y lo mandé a la vista del empleado
+=========================================================
+GRANOVA — Verificación y testing de "pasar pedido a pagado"
+=========================================================
+
+1) SQL PARA VERIFICAR (correr en Supabase SQL Editor)
+-----------------------------------------------------
+
+-- Valores reales guardados por método de pago (¿qué hay en la BD?)
+SELECT metodo_pago, estado_pago, estado, COUNT(*) AS total
+FROM public.pedidos
+GROUP BY metodo_pago, estado_pago, estado
+ORDER BY metodo_pago, estado_pago, estado;
+
+-- Últimos pedidos con su método y estado de pago
+SELECT id_pedido, fecha_pedido, metodo_pago, estado, estado_pago, total
+FROM public.pedidos
+ORDER BY id_pedido DESC
+LIMIT 20;
+
+-- Trazabilidad de pagos (panel usa MANUAL-…, cliente usa CLIENTE-…, pasarela usa la referencia)
+SELECT id_pago, id_pedido, metodo_pago, monto, referencia, estado, confirmado_por, fecha_pago
+FROM public.pagos
+ORDER BY id_pago DESC
+LIMIT 20;
+
+-- Notificaciones y puntos generados al pagar
+SELECT id_notificacion, id_cliente, tipo, titulo, id_pedido, creada_en
+FROM public.notificaciones
+ORDER BY id_notificacion DESC
+LIMIT 10;
+
+-- Nota: si metodo_pago sale vacío, es porque el pedido se creó antes de la migración.
+-- El panel agrupa esos como "sin dato" (solo aparecen con el filtro "Todos").
+
+2) NUEVO FLUJO: los pedidos NACEEN 'confirmado' (ya no 'pendiente')
+-------------------------------------------------------------------
+Aplicar ANTES del redeploy (Supabase SQL Editor) el archivo:
+  sql/15_pedidos_confirmado.sql
+Contenido resumido:
+  ALTER TABLE public.pedidos ALTER COLUMN estado SET DEFAULT 'confirmado';
+  UPDATE public.pedidos SET estado = 'confirmado' WHERE estado = 'pendiente';
+
+Nuevo esperado al crear un pedido:
+  - estado            = confirmado
+  - estado_pago       = pendiente (contra entrega) o pendiente_verificacion (transferencia/efectivo)
+  - En el panel ya NO existe la pestaña "Pendientes".
+  - El botón "💰 Marcar pago recibido" se usa para pasar el PAGO a pagado.
+
+3) IS THE PREFIX __ (testing manual)
+-----------------------------------------------------
+[Deja aquí tus pasos de testing y resultados]

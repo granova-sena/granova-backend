@@ -7,7 +7,15 @@ import crypto from "node:crypto"
 import transportador from "../config/email.js"
 
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || "http://localhost:3000/auth/google/callback"
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173"
+// Dominio público del frontend para los enlaces de los correos.
+// Se sobrescribió con FRONTEND_URL (Railway/.env), pero si esa variable trae
+// un dominio viejo (granova-backend-production.up.railway.app) esos enlaces
+// quedan rotos; por eso solo se aceptan valores locales/oficiales y cualquier
+// otro valor cae a https://www.granovaoficial.com.
+const FRONTEND_URL =
+  process.env.FRONTEND_URL && /granovaoficial\.com|localhost/.test(process.env.FRONTEND_URL)
+    ? process.env.FRONTEND_URL
+    : "https://www.granovaoficial.com" 
 
 // Tiempo que dura válido el token de recuperación (independiente del cooldown de reenvío)
 const TOKEN_EXPIRACION_MIN = 60
@@ -17,6 +25,41 @@ const REENVIO_COOLDOWN_MIN = Number(process.env.REENVIO_COOLDOWN_MIN || 15)
 const TOKEN_VERIFICACION_EXPIRACION_MIN = 60 * 24
 // Cooldown de reenvío del correo de verificación de cuenta
 const REENVIO_VERIFICACION_COOLDOWN_MIN = Number(process.env.REENVIO_VERIFICACION_COOLDOWN_MIN || 5)
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+
+// ── Cloudflare Turnstile (anti-bot) ────────────────────────────
+// La Site Key va en el frontend (src/pages/Register.jsx y RegistroEmpresa.jsx).
+// La Secret Key va aquí en el .env del backend: TURNSTILE_SECRET_KEY
+// La obtienes en Turnstile → Manage Widgets al crear tu widget.
+const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY
+
+async function verificarTurnstile(token) {
+  // Si no hay Secret Key configurada, permitimos el registro (modo desarrollo/demo SENA).
+  if (!TURNSTILE_SECRET_KEY) return true
+  if (!token) return false
+  try {
+    const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ secret: TURNSTILE_SECRET_KEY, response: token }),
+    })
+    const data = await res.json()
+    return Boolean(data.success)
+  } catch {
+    // Si falla la red con Cloudflare, rechazamos por seguridad.
+    return false
+  }
+}
+// Política mínima de contraseña (consistente con el formulario de registro):
+// al menos 6 caracteres, una mayúscula, un número y un carácter especial.
+const VALIDAR_CONTRASEÑA = (contraseña) => {
+  if (!contraseña || String(contraseña).length < 6) return "La contraseña debe tener al menos 6 caracteres"
+  if (!/[A-Z]/.test(contraseña)) return "La contraseña debe tener al menos una mayúscula"
+  if (!/[0-9]/.test(contraseña)) return "La contraseña debe tener al menos un número"
+  if (!/[^A-Za-z0-9]/.test(contraseña)) return "La contraseña debe tener al menos un carácter especial"
+  return null
+}
 
 const googleClient = new OAuth2Client(
     process.env.GOOGLE_CLIENT_ID,
@@ -59,11 +102,26 @@ export async function register(req, res) {
         const {
             nombre, apellido, email, contraseña,
             tipo_persona, tipo_documento, numero_documento,
-            digito_verificacion, razon_social, tipo_cliente
+            digito_verificacion, razon_social, tipo_cliente, turnstileToken
         } = req.body
 
         if (!nombre || !apellido || !email || !contraseña) {
             return res.status(400).json({ error: "Todos los campos son obligatorios" })
+        }
+
+        // Cloudflare Turnstile: rechazar registros de bots si la clave está configurada.
+        const turnstileValido = await verificarTurnstile(turnstileToken)
+        if (!turnstileValido) {
+            return res.status(400).json({ error: "No se pudo verificar que eres humano. Inténtalo de nuevo." })
+        }
+
+        if (!EMAIL_REGEX.test(String(email))) {
+            return res.status(400).json({ error: "El correo no es válido" })
+        }
+
+        const errorContraseña = VALIDAR_CONTRASEÑA(contraseña)
+        if (errorContraseña) {
+            return res.status(400).json({ error: errorContraseña })
         }
 
         // Valores por defecto: el registro solo pide nombre, email y contraseña.
@@ -177,20 +235,26 @@ export async function login(req, res) {
     try {
         const { email, contraseña } = req.body
 
+        if (!email || !contraseña) {
+            return res.status(400).json({ error: "El correo y la contraseña son obligatorios" })
+        }
+
         const resultado = await pool.query(
             "SELECT * FROM clientes WHERE email = $1",
             [email]
         )
 
-        if (resultado.rows.length === 0) {
-            return res.status(401).json({ error: "Usuario no encontrado " })
+        const cliente = resultado.rows[0]
+
+        // Mensaje genérico: no revela si el correo existe o no (anti-enumeración).
+        if (!cliente) {
+            return res.status(401).json({ error: "Credenciales inválidas" })
         }
 
-        const cliente = resultado.rows[0]
         const contraseñaValida = await bcrypt.compare(contraseña, cliente.contraseña)
 
         if (!contraseñaValida) {
-            return res.status(401).json({ error: "Contraseña incorrecta" })
+            return res.status(401).json({ error: "Credenciales inválidas" })
         }
 
         if (!cliente.verificado) {
@@ -225,7 +289,8 @@ export async function login(req, res) {
         })
 
     } catch (error) {
-        res.status(500).json({ error: error.message })
+        console.error("Error en login:", error.message)
+        res.status(500).json({ error: "Error al iniciar sesión, intenta de nuevo" })
     }
 }
 
@@ -423,23 +488,29 @@ export async function loginAdmin(req, res) {
     try {
         const { email, contraseña } = req.body
 
+        if (!email || !contraseña) {
+            return res.status(400).json({ error: "El correo y la contraseña son obligatorios" })
+        }
+
         const resultado = await pool.query(
             "SELECT * FROM usuarios WHERE email = $1",
             [email]
         )
 
-        if (resultado.rows.length === 0) {
-            return res.status(401).json({ error: "Usuario no encontrado" })
+        const usuario = resultado.rows[0]
+
+        // Mensaje genérico: no revela si el correo existe o no (anti-enumeración).
+        if (!usuario) {
+            return res.status(401).json({ error: "Credenciales inválidas" })
         }
 
-        const usuario = resultado.rows[0]
         const contraseñaValida = await bcrypt.compare(contraseña, usuario.contraseña)
 
         if (!contraseñaValida) {
-            return res.status(401).json({ error: "Contraseña incorrecta" })
+            return res.status(401).json({ error: "Credenciales inválidas" })
         }
 
-        if (!["admin", "empleado"].includes(usuario.rol)) {
+        if (!["admin", "empleado", "logistica"].includes(usuario.rol)) {
             return res.status(403).json({ error: "No tienes permisos para acceder" })
         }
 
@@ -447,12 +518,8 @@ export async function loginAdmin(req, res) {
             return res.status(403).json({ error: "Tu cuenta está bloqueada, contacta al administrador" })
         }
 
-        if (usuario.estado === "eliminado") {
-            return res.status(403).json({ error: "Tu cuenta ya no está activa, contacta al administrador" })
-        }
-
         const token = jwt.sign(
-            { id: usuario.id_usuario, email: usuario.email, rol: usuario.rol, nombre: usuario.nombre },
+            { id: usuario.id_usuario, email: usuario.email, rol: usuario.rol },
             process.env.JWT_SECRET,
             { expiresIn: "2h" }
         )
@@ -470,7 +537,8 @@ export async function loginAdmin(req, res) {
         })
 
     } catch (error) {
-        res.status(500).json({ error: error.message })
+        console.error("Error en loginAdmin:", error.message)
+        res.status(500).json({ error: "Error al iniciar sesión, intenta de nuevo" })
     }
 }
 
@@ -548,13 +616,19 @@ export async function solicitarRecuperacion(req, res) {
         res.json({ mensaje: "Si el correo existe, recibirás un enlace de recuperación" })
 
     } catch (error) {
-        res.status(500).json({ error: error.message })
+        console.error("Error en solicitarRecuperacion:", error.message)
+        res.status(500).json({ error: "Error al procesar la solicitud, intenta de nuevo" })
     }
 }
 
 export async function resetearContraseña(req, res) {
     try {
         const { token, nuevaContraseña } = req.body
+
+        const errorContraseña = VALIDAR_CONTRASEÑA(nuevaContraseña)
+        if (errorContraseña) {
+            return res.status(400).json({ error: errorContraseña })
+        }
 
         let resultado = await pool.query(
             "SELECT * FROM clientes WHERE token_recuperacion = $1",
@@ -659,7 +733,8 @@ export async function googleOneTap(req, res) {
             },
         })
     } catch (error) {
-        res.status(500).json({ error: error.message })
+        console.error("Error en googleOneTap:", error.message)
+        res.status(500).json({ error: "Error al iniciar sesión, intenta de nuevo" })
     }
 }
 
@@ -722,13 +797,19 @@ export async function solicitarRecuperacionAdmin(req, res) {
 
         res.json({ mensaje: "Si el correo existe, recibirás un enlace de recuperación" })
     } catch (error) {
-        res.status(500).json({ error: error.message })
+        console.error("Error en solicitarRecuperacionAdmin:", error.message)
+        res.status(500).json({ error: "Error al procesar la solicitud, intenta de nuevo" })
     }
 }
 
 export async function resetearContraseñaAdmin(req, res) {
     try {
         const { token, nuevaContraseña } = req.body
+
+        const errorContraseña = VALIDAR_CONTRASEÑA(nuevaContraseña)
+        if (errorContraseña) {
+            return res.status(400).json({ error: errorContraseña })
+        }
 
         const resultado = await pool.query(
             "SELECT * FROM usuarios WHERE token_recuperacion = $1",
@@ -754,6 +835,7 @@ export async function resetearContraseñaAdmin(req, res) {
 
         res.json({ mensaje: "Contraseña actualizada correctamente" })
     } catch (error) {
-        res.status(500).json({ error: error.message })
+        console.error("Error en resetearContraseñaAdmin:", error.message)
+        res.status(500).json({ error: "Error al restablecer la contraseña" })
     }
 }

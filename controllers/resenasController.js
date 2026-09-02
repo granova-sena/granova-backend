@@ -28,7 +28,7 @@ export const crearResena = async (req, res) => {
     // Validar en una sola query: el detalle existe, pertenece a ese cliente,
     // y el pedido ya fue entregado
     const compra = await pool.query(
-      `SELECT dp.id_detalle
+      `SELECT dp.id_detalle, p.id_pedido
        FROM detalle_pedidos dp
        JOIN pedidos p ON p.id_pedido = dp.id_pedido
        WHERE dp.id_detalle = $1 AND p.id_cliente = $2 AND p.estado = 'entregado'`,
@@ -47,6 +47,20 @@ export const crearResena = async (req, res) => {
        VALUES ($1, $2, $3)
        RETURNING id_resena, calificacion, comentario, fecha_resena`,
       [id_detalle, calificacion, comentario || null]
+    );
+
+    // Si ya no quedan productos sin reseñar en ese pedido, se elimina la
+    // notificación recordatorio; si faltan más, sigue hasta completarlas.
+    const id_pedido = compra.rows[0].id_pedido;
+    await pool.query(
+      `DELETE FROM notificaciones n
+       WHERE n.id_cliente = $1 AND n.id_pedido = $2 AND n.tipo = 'reseña'
+         AND NOT EXISTS (
+           SELECT 1 FROM detalle_pedidos d
+           LEFT JOIN resenas r ON r.id_detalle_pedido = d.id_detalle
+           WHERE d.id_pedido = $2 AND r.id_resena IS NULL
+         )`,
+      [id_cliente, id_pedido]
     );
 
     res.status(201).json({ ok: true, data: nuevaResena.rows[0] });

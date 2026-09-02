@@ -135,7 +135,7 @@ export const obtenerAnalisisClientes = async (req, res) => {
     const clientesNuevos = await pool.query(`
       SELECT COUNT(*) as total
       FROM clientes
-      WHERE fecha_registro >= NOW() - INTERVAL '30 days'
+      WHERE COALESCE(fecha_registro, fecha_creacion) >= NOW() - INTERVAL '30 days'
     `)
 
     // Frecuencia promedio de compra
@@ -182,5 +182,47 @@ export const obtenerAnalisisClientes = async (req, res) => {
   } catch (error) {
     console.error("Error obteniendo análisis de clientes:", error.message)
     res.status(500).json({ ok: false, mensaje: "Error al obtener análisis de clientes" })
+  }
+}
+
+// ─────────────────────────────────────────
+// GET /api/reportes/empleados?page=1&limit=5
+// Reportes que el admin ha creado para los empleados (reportes_empleado).
+// ─────────────────────────────────────────
+export const obtenerReportesEmpleados = async (req, res) => {
+  try {
+    const page = Math.max(Number(req.query.page) || 1, 1)
+    const limit = Math.min(Math.max(Number(req.query.limit) || 5, 1), 100)
+    const offset = (page - 1) * limit
+
+    const total = await pool.query(
+      `SELECT COUNT(*)::int AS total FROM reportes_empleado`
+    )
+
+    const reportes = await pool.query(
+      `SELECT r.id_reporte, r.motivo, r.fecha,
+              u1.nombre AS empleado_nombre, u1.apellido AS empleado_apellido,
+              u2.nombre AS creado_por_nombre
+       FROM reportes_empleado r
+       JOIN usuarios u1 ON u1.id_usuario = r.id_empleado
+       LEFT JOIN usuarios u2 ON u2.id_usuario = r.creado_por
+       ORDER BY r.fecha DESC
+       LIMIT $1 OFFSET $2`,
+      [limit, offset]
+    )
+
+    res.status(200).json({
+      ok: true,
+      reportes: reportes.rows,
+      paginacion: {
+        page,
+        limit,
+        total: total.rows[0].total,
+        totalPages: Math.max(Math.ceil(total.rows[0].total / limit), 1),
+      },
+    })
+  } catch (error) {
+    console.error("Error obteniendo reportes a empleados:", error.message)
+    res.status(500).json({ ok: false, mensaje: "Error al obtener reportes a empleados" })
   }
 }

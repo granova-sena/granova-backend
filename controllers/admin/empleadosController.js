@@ -32,6 +32,57 @@ async function generarEmailUnico(nombre, apellido) {
   }
 }
 
+const consultarHistorial = async (id) => {
+  const segmentos = [
+    {
+      tipo: 'producto',
+      sql: `SELECT 'producto' AS tipo, p.nombre AS detalle, p.fecha_creacion AS fecha
+            FROM productos p WHERE p.creado_por = $1`,
+    },
+    {
+      tipo: 'entrega',
+      sql: `SELECT 'entrega' AS tipo,
+                   f.nombre || ' · ' || e.cantidad_kg || ' kg · lote ' || l.codigo_lote AS detalle,
+                   e.fecha::timestamp AS fecha
+            FROM entregas_finca e
+            JOIN fincas f ON f.id = e.id_finca
+            JOIN lotes l ON l.id_lote = e.id_lote
+            WHERE e.registrado_por = $1 AND e.estado = 'registrada'`,
+    },
+    {
+      tipo: 'pago',
+      sql: `SELECT 'pago' AS tipo,
+                   'Marcó pagada la entrega de ' || f.nombre || ' (' || e.cantidad_kg || ' kg)' AS detalle,
+                   e.fecha_pago AS fecha
+            FROM entregas_finca e
+            JOIN fincas f ON f.id = e.id_finca
+            WHERE e.pagado_por = $1 AND e.estado = 'registrada'`,
+    },
+    {
+      tipo: 'proceso',
+      sql: `SELECT 'proceso' AS tipo,
+                   'Procesó ' || pl.kg_utilizados || ' kg del lote ' || l.codigo_lote AS detalle,
+                   pl.fecha AS fecha
+            FROM procesamientos_lote pl
+            JOIN lotes l ON l.id_lote = pl.id_lote
+            WHERE pl.procesado_por = $1`,
+    },
+  ]
+
+  const filas = []
+  for (const s of segmentos) {
+    try {
+      const r = await pool.query(s.sql, [id])
+      filas.push(...r.rows)
+    } catch (error) {
+      console.error(`Historial (${s.tipo}) no disponible: ${error.message}`)
+    }
+  }
+  return filas
+    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
+    .slice(0, 30)
+}
+
 const listarEmpleados = async (req, res) => {
   try {
     const result = await pool.query(
@@ -53,6 +104,9 @@ const listarEmpleados = async (req, res) => {
 const obtenerEmpleado = async (req, res) => {
   try {
     const { id } = req.params
+    if (!/^\d+$/.test(id)) {
+      return res.status(400).json({ ok: false, error: "Id de empleado inválido" })
+    }
     const result = await pool.query(
       `SELECT id_usuario, nombre, apellido, email, estado, fecha_creacion, fecha_actualizacion
        FROM usuarios WHERE id_usuario = $1 AND rol = 'empleado' AND estado != 'eliminado'`,
@@ -68,8 +122,7 @@ const obtenerEmpleado = async (req, res) => {
                 SELECT json_agg(json_build_object(
                   'id_respuesta', rr.id_respuesta,
                   'respuesta', rr.respuesta,
-                  'fecha', rr.fecha,
-                  'id_empleado', rr.id_empleado
+                  'fecha', rr.fecha
                 ) ORDER BY rr.fecha ASC)
                 FROM reporte_respuestas rr WHERE rr.id_reporte = r.id_reporte
               ), '[]'::json) AS respuestas
@@ -82,54 +135,16 @@ const obtenerEmpleado = async (req, res) => {
 
     // Historial real: productos que creó + entregas que registró o marcó
     // pagadas + lotes que procesó en presentaciones
-    const historial = await pool.query(
-      `SELECT 'producto' AS tipo, p.nombre AS detalle, p.fecha_creacion AS fecha
-       FROM productos p WHERE p.creado_por = $1
-       UNION ALL
-       SELECT 'entrega' AS tipo,
-              f.nombre || ' · ' || e.cantidad_kg || ' kg · lote ' || l.codigo_lote AS detalle,
-              e.fecha::timestamp AS fecha
-       FROM entregas_finca e
-       JOIN fincas f ON f.id = e.id_finca
-       JOIN lotes l ON l.id_lote = e.id_lote
-       WHERE e.registrado_por = $1 AND e.estado = 'registrada'
-       UNION ALL
-       SELECT 'pago' AS tipo,
-              'Marcó pagada la entrega de ' || f.nombre || ' (' || e.cantidad_kg || ' kg)' AS detalle,
-              e.fecha_pago AS fecha
-       FROM entregas_finca e
-       JOIN fincas f ON f.id = e.id_finca
-       WHERE e.pagado_por = $1 AND e.estado = 'registrada'
-       UNION ALL
-       SELECT 'proceso' AS tipo,
-              'Procesó ' || pl.kg_utilizados || ' kg del lote ' || l.codigo_lote AS detalle,
-              pl.fecha AS fecha
-       FROM procesamientos_lote pl
-       JOIN lotes l ON l.id_lote = pl.id_lote
-       WHERE pl.procesado_por = $1
-       ORDER BY fecha DESC
-       LIMIT 30`,
-      [id]
-    )
-
-    // Totales reales (sin el LIMIT de la vista) para que el resumen sea exacto
-    const totales = await pool.query(
-      `SELECT
-        (SELECT COUNT(*) FROM productos p WHERE p.creado_por = $1)::int AS productos,
-        (SELECT COUNT(*) FROM entregas_finca e WHERE e.registrado_por = $1 AND e.estado = 'registrada')::int AS entregas,
-        (SELECT COUNT(*) FROM entregas_finca e WHERE e.pagado_por = $1 AND e.estado = 'registrada')::int AS pagos,
-        (SELECT COUNT(*) FROM procesamientos_lote pl WHERE pl.procesado_por = $1)::int AS procesos`,
-      [id]
-    )
+    const historial = await consultarHistorial(id)
 
     const resumenHistorial = {
-      productosAgregados: totales.rows[0].productos,
-      entregasRegistradas: totales.rows[0].entregas,
-      pagosMarcados: totales.rows[0].pagos,
-      lotesProcesados: totales.rows[0].procesos,
+      productosAgregados: historial.filter(h => h.tipo === 'producto').length,
+      entregasRegistradas: historial.filter(h => h.tipo === 'entrega').length,
+      pagosMarcados: historial.filter(h => h.tipo === 'pago').length,
+      lotesProcesados: historial.filter(h => h.tipo === 'proceso').length,
     }
 
-    res.json({ ok: true, empleado: result.rows[0], reportes: reportes.rows, historial: historial.rows, resumenHistorial })
+    res.json({ ok: true, empleado: result.rows[0], reportes: reportes.rows, historial, resumenHistorial })
   } catch (error) {
     console.error(error)
     res.status(500).json({ ok: false, error: error.message })
@@ -139,8 +154,11 @@ const obtenerEmpleado = async (req, res) => {
 const crearEmpleado = async (req, res) => {
   try {
     const { nombre, apellido } = req.body
-    if (!nombre || !apellido) {
+    if (!nombre?.trim() || !apellido?.trim()) {
       return res.status(400).json({ ok: false, error: "Nombre y apellido son obligatorios" })
+    }
+    if (nombre.trim().length > 50 || apellido.trim().length > 50) {
+      return res.status(400).json({ ok: false, error: "Nombre y apellido no pueden superar 50 caracteres" })
     }
 
     const email = await generarEmailUnico(nombre, apellido)
@@ -163,7 +181,7 @@ const crearEmpleado = async (req, res) => {
   } catch (error) {
     console.error(error)
     if (error.code === "23514") {
-      return res.status(400).json({ ok: false, error: "No se pudo crear el empleado: un valor no cumple las reglas de la base de datos" })
+      return res.status(400).json({ ok: false, error: "El rol 'empleado' no está permitido en la base de datos todavía" })
     }
     res.status(500).json({ ok: false, error: error.message })
   }
@@ -173,10 +191,6 @@ const actualizarEmpleado = async (req, res) => {
   try {
     const { id } = req.params
     const { nombre, apellido, estado } = req.body
-
-    if (estado !== undefined && !["activo", "inactivo", "bloqueado"].includes(estado)) {
-      return res.status(400).json({ ok: false, error: "Estado inválido" })
-    }
 
     const result = await pool.query(
       `UPDATE usuarios
@@ -367,8 +381,7 @@ const misReportes = async (req, res) => {
                 SELECT json_agg(json_build_object(
                   'id_respuesta', rr.id_respuesta,
                   'respuesta', rr.respuesta,
-                  'fecha', rr.fecha,
-                  'id_empleado', rr.id_empleado
+                  'fecha', rr.fecha
                 ) ORDER BY rr.fecha ASC)
                 FROM reporte_respuestas rr WHERE rr.id_reporte = r.id_reporte
               ), '[]'::json) AS respuestas
@@ -416,9 +429,33 @@ const responderReporte = async (req, res) => {
   }
 }
 
+// Todas las respuestas de todos los empleados a sus reportes (vista general admin)
+const todasRespuestas = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT rr.id_respuesta, rr.respuesta, rr.fecha,
+              u.id_usuario AS id_empleado,
+              u.nombre AS empleado_nombre,
+              u.apellido AS empleado_apellido,
+              u.email AS empleado_email,
+              r.motivo, r.fecha AS reporte_fecha
+       FROM reporte_respuestas rr
+       JOIN usuarios u ON u.id_usuario = rr.id_empleado
+       JOIN reportes_empleado r ON r.id_reporte = rr.id_reporte
+       WHERE u.estado != 'eliminado'
+       ORDER BY rr.fecha DESC`
+    )
+    res.json({ ok: true, respuestas: result.rows })
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ ok: false, error: error.message })
+  }
+}
+
 export {
   listarEmpleados, obtenerEmpleado, crearEmpleado,
   actualizarEmpleado, resetearPasswordEmpleado, eliminarEmpleado,
-  crearReporte, eliminarReporte, eliminarTodosLosReportes, responderReporte,
-  bloquearEmpleado, desbloquearEmpleado, alertasEmpleados, misReportes
+  crearReporte, eliminarReporte, eliminarTodosLosReportes,
+  bloquearEmpleado, desbloquearEmpleado, alertasEmpleados, misReportes, responderReporte,
+  todasRespuestas
 }

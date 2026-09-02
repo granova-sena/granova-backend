@@ -74,15 +74,40 @@ export const crearFactura = async (req, res) => {
             });
         }
 
-        // 2. Verificar que no tenga factura
+        // 1b. Solo el dueño del pedido o personal del panel (admin/empleado/logistica)
+        // pueden emitir factura. Sin restricción por estado de pago/pedido.
+        const esPanel = ["admin", "empleado", "logistica"].includes(req.usuario?.rol);
+        const esDueno = Number(req.usuario?.id) === Number(pedidoEncontrado.id_cliente);
+        if (!esPanel && !esDueno) {
+            await client.query("ROLLBACK");
+            return res.status(403).json({
+                ok:     false,
+                mensaje: "No tienes permiso para facturar este pedido",
+            });
+        }
+
+        // 2. Verificar que no tenga factura. Si ya existe, el POST es
+        // idempotente: se devuelve la factura existente en vez de un error,
+        // para que el flujo cliente "generar y descargar" siempre funcione
+        // aunque la factura se haya emitido antes.
         const consultaFactura = await buscarFacturaPorPedido(id_pedido);
         const facturasYaExiste = consultaFactura.rows.length > 0;
 
         if(facturasYaExiste){
-            await client.query("ROLLBACK");
-            return res.status(400).json({
-                ok:     false,
-                mensaje: "Este pedido tiene una factura ya generada",
+            const existente = await obtenerFacturaCompleta(id_pedido);
+            const facturaPrevia = existente.rows[0];
+            const itemsPrevia = await obtenerItemsConIva(id_pedido);
+            const valoresPrevia = calcularValoresPorTasa(itemsPrevia.rows);
+
+            await client.query("COMMIT");
+            return res.status(200).json({
+                ok: true,
+                data: {
+                    ...facturaPrevia,
+                    impuestos_por_tasa: valoresPrevia.impuestosPorTasa,
+                    estado_pago: pedidoEncontrado.estado_pago || null,
+                },
+                mensaje: "La factura ya existía",
             });
         }
 
@@ -200,8 +225,9 @@ export const obtenerFactura = async (req,res) =>{
                 ...facturaEncontrada,
                 subtotal: valoresFactura.subtotal,
                 impuestos: valoresFactura.impuestos,
-                impuestos_por_tasa: valoresFactura.impuestosPorTasa,
                 descuento: descuentoTotal,
+                envio: Number(facturaEncontrada.costo_envio) || 0,
+                impuestos_por_tasa: valoresFactura.impuestosPorTasa,
                 productos: productosDelPedido,
             },
         });

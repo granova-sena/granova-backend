@@ -10,7 +10,12 @@ import "dotenv/config";
 //   EMAIL_USER        -> el correo verificado como remitente en Brevo
 //                        (ya existe esta variable, se reutiliza)
 
-const BREVO_API_URL = "https://api.brevo.com/v3/smtp/email";
+// La URL de Brevo admite dos formas: con la ruta completa del SMTP reescrita
+// (https://api.brevo.com/v3/smtp/email) o con la raíz del v3
+// (https://api.brevo.com/v3). Este normalizador cubre ambas para que los
+// correos nunca caigan contra una URL inválida.
+const BREVO_BASE = (process.env.BREVO_API_URL || "https://api.brevo.com/v3/smtp/email").replace(/\/+$/, "");
+const BREVO_API_URL = BREVO_BASE.endsWith("/smtp/email") ? BREVO_BASE : `${BREVO_BASE}/smtp/email`;
 
 async function sendMail({ to, subject, html }) {
     const respuesta = await fetch(BREVO_API_URL, {

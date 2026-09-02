@@ -61,6 +61,7 @@ export const obtenerFacturaCompleta = (id_pedido) =>
        p.direccion_envio,
        p.ciudad_envio,
        p.descuento     AS descuento_pedido,
+       0               AS costo_envio,
        p.estado        AS estado_pedido,
        p.estado_pago,
        c.nombre        AS nombre_cliente,

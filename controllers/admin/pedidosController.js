@@ -1,5 +1,6 @@
 import pool from "../../config/db.js"
 import { devolverStockPedido } from "../../utils/stockPedido.js"
+import { finalizarBeneficiosLealtad } from "../../utils/finalizarLealtad.js"
 
 function normalizar(texto) {
   return String(texto || '')
@@ -47,7 +48,15 @@ const TITULOS_NOTIFICACION = {
 
 const getResumen = async (req, res) => {
   try {
-    const result = await pool.query(`SELECT estado, total FROM pedidos`);
+    const result = await pool.query(`
+      SELECT estado, estado_pago, total FROM pedidos
+    `);
+
+    // Pedidos cuya forma de pago aún no se confirma (manuales), independiente
+    // del estado logístico. Se usa en la tarjeta "Pendientes de pago".
+    const pendientesPago = result.rows.filter(p =>
+      p.estado_pago === 'pendiente' || p.estado_pago === 'pendiente_verificacion'
+    ).length;
 
     let pendientes = 0, confirmados = 0, rechazados = 0, totalEnPedidos = 0;
     result.rows.forEach(p => {
@@ -77,6 +86,7 @@ if (anterior === 0) {
       confirmados,
       rechazados,
       cancelados: rechazados, // alias por compatibilidad con el frontend viejo
+      pendientesPago,
       total: result.rows.length,
       totalEnPedidos,
       cambioTotal: cambio
@@ -93,7 +103,8 @@ const getPedidos = async (req, res) => {
 
     const result = await pool.query(`
       SELECT
-        p.id_pedido, p.fecha_pedido, p.estado, p.total,
+        p.id_pedido, p.fecha_pedido, p.estado, p.estado_pago, p.metodo_pago, p.total,
+        p.operacion, p.sector_envio,
         c.nombre, c.apellido, c.email,
         dp1.producto_nombre, dp1.finca_nombre, dp1.codigo_lote,
         dp_sum.cantidad_total
@@ -126,6 +137,10 @@ const getPedidos = async (req, res) => {
       lote: p.codigo_lote || null,
       cantidad: Number(p.cantidad_total) || 0,
       total: Number(p.total),
+      operacion: p.operacion,
+      sector_envio: p.sector_envio || null,
+      metodo_pago: p.metodo_pago,
+      estado_pago: p.estado_pago,
       estado: bucketEstado(p.estado),
       fecha: p.fecha_pedido,
     }));
@@ -329,12 +344,19 @@ const cambiarEstadoPedido = async (req, res) => {
     await client.query('BEGIN');
 
     const actual = await client.query(
-      `SELECT estado, id_cliente, estado_pago FROM pedidos WHERE id_pedido = $1 FOR UPDATE`,
+      `SELECT estado, id_cliente, estado_pago, operacion FROM pedidos WHERE id_pedido = $1 FOR UPDATE`,
       [id]
     );
     if (actual.rows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ ok: false, error: 'Pedido no encontrado.' });
+    }
+
+    // Los pedidos de REPARTO no se caminan a mano por el empleado: el avance
+    // lo controla el módulo de Despacho (rol logistica) y aquí solo se lee.
+    if (actual.rows[0].operacion === 'reparto') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ ok: false, error: 'Este pedido es de reparto: su avance lo coordina el módulo de Despacho.' });
     }
 
     // Un pedido con pago fallido no puede avanzar en la logística
@@ -361,13 +383,15 @@ const cambiarEstadoPedido = async (req, res) => {
 
     await client.query(`UPDATE pedidos SET estado = $1 WHERE id_pedido = $2`, [estadoSiguiente, id]);
 
-    // Notificar al cliente dueño del pedido
+    // Notificar al cliente dueño del pedido (la de "entregado" es además el
+    // recordatorio de reseña: persiste hasta que reseñe).
     const notif = TITULOS_NOTIFICACION[estadoSiguiente];
     if (notif) {
+      const tipoNotif = estadoSiguiente === 'entregado' ? 'reseña' : 'pedido';
       await client.query(
         `INSERT INTO notificaciones (id_cliente, tipo, titulo, mensaje, id_pedido)
-         VALUES ($1, 'pedido', $2, $3, $4)`,
-        [actual.rows[0].id_cliente, notif.titulo, notif.mensaje, id]
+         VALUES ($1, $2, $3, $4, $5)`,
+        [actual.rows[0].id_cliente, tipoNotif, notif.titulo, notif.mensaje, id]
       );
     }
 
@@ -461,8 +485,22 @@ const marcarPago = async (req, res) => {
       await client.query(`UPDATE clientes SET puntos = puntos + $1 WHERE id_cliente = $2`, [puntos, pedido.id_cliente]);
     }
 
+    // Premio de lealtad (unidades) y consumo del cupón al cobrar.
+    const beneficios = await finalizarBeneficiosLealtad(client, {
+      id_pedido: id,
+      id_cliente: pedido.id_cliente,
+      esJuridica,
+    });
+
     await client.query('COMMIT');
-    res.json({ ok: true, estado: bucketEstado(nuevoEstado), estado_pago: 'pagado', puntos_ganados: puntos });
+    res.json({
+      ok: true,
+      estado: bucketEstado(nuevoEstado),
+      estado_pago: 'pagado',
+      puntos_ganados: puntos,
+      unidades_acumuladas: beneficios.unidades_acumuladas,
+      premio_aplicado: beneficios.premio_aplicado,
+    });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Error en marcarPago:', error);

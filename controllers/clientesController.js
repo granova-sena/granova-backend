@@ -54,7 +54,7 @@ export const obtenerCliente = async (req, res) => {
 
   try {
     const resultado = await pool.query(
-      `SELECT id_cliente, nombre, apellido, email, verificado, fecha_creacion, puntos,
+      `SELECT id_cliente, nombre, apellido, email, verificado, fecha_creacion, puntos, unidades_acumuladas,
               tipo_persona, tipo_documento, numero_documento, digito_verificacion, razon_social, tipo_cliente
        FROM clientes
        WHERE id_cliente = $1`,

@@ -55,6 +55,10 @@ export async function cambiarEstadoUsuario(req, res) {
     try {
         const { id } = req.params
 
+        if (Number.isNaN(Number(id))) {
+            return res.status(400).json({ error: "Id inválido" })
+        }
+
         const usuarioActual = await pool.query(
             `SELECT rol, estado FROM usuarios WHERE id_usuario = $1`,
             [id]
@@ -103,8 +107,16 @@ export async function cambiarRolUsuario(req, res) {
         const { id } = req.params
         const { rol } = req.body
 
+        if (Number.isNaN(Number(id))) {
+            return res.status(400).json({ error: "Id inválido" })
+        }
+
         if (!rol) {
             return res.status(400).json({ error: "El rol es obligatorio" })
+        }
+
+        if (!["admin", "empleado", "logistica"].includes(rol)) {
+            return res.status(400).json({ error: "Ese rol no es válido" })
         }
 
         // Si le van a quitar el rol admin a alguien, primero verificamos
@@ -161,6 +173,10 @@ export async function cambiarRolUsuario(req, res) {
 export async function eliminarUsuario(req, res) {
     try {
         const { id } = req.params
+
+        if (Number.isNaN(Number(id))) {
+            return res.status(400).json({ error: "Id inválido" })
+        }
 
         // No dejamos que un admin se borre a sí mismo por accidente mientras tiene la sesión activa.
         if (req.usuario?.id && String(req.usuario.id) === String(id)) {

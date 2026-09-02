@@ -24,12 +24,12 @@ const getResumen = async (req, res) => {
     `);
 
     const clientesActivos = await pool.query(`
-      SELECT COUNT(*) AS total FROM clientes WHERE estado = 'activo'
+      SELECT COUNT(*) AS total FROM clientes WHERE COALESCE(estado, 'activo') = 'activo'
     `);
 
     const clientesNuevos = await pool.query(`
       SELECT COUNT(*) AS total FROM clientes
-      WHERE date_trunc('month', fecha_registro) = date_trunc('month', CURRENT_DATE)
+      WHERE date_trunc('month', COALESCE(fecha_registro, fecha_creacion)) = date_trunc('month', CURRENT_DATE)
     `);
 
     const facturas = await pool.query(`

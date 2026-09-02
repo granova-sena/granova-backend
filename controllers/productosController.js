@@ -43,6 +43,11 @@ export const obtenerProductos = async (req, res) => {
         AND pr.estado = 'activa'
         AND (pr.fecha_fin IS NULL OR pr.fecha_fin >= CURRENT_DATE)
       WHERE p.estado = 'activo'
+        AND (
+          p.stock > 0
+          OR EXISTS (SELECT 1 FROM formatos_producto f
+                     WHERE f.id_producto = p.id_producto AND f.activo = true AND f.stock > 0)
+        )
       ORDER BY p.nombre ASC
     `)
 
