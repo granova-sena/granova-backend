@@ -191,3 +191,24 @@ export async function crearPedidoCompleto({ id_cliente, metodo_pago, direccion_e
     client.release();
   }
 }
+export async function calcularTotalActual({ id_cliente, productos, codigo_cupon }) {
+  const client = await pool.connect();
+  try {
+    const { rows: filasCliente } = await buscarClienteParaPedido(client, id_cliente);
+    if (filasCliente.length === 0) {
+      throw new ErrorPedido('Cliente no encontrado', 'NO_ENCONTRADO');
+    }
+    const esMayorista = filasCliente[0].tipo_cliente === 'mayorista';
+    const esJuridica = filasCliente[0].tipo_persona === 'juridica';
+
+    const productosConPrecio = await procesarProductosDelPedido(client, productos, { esMayorista, esJuridica });
+    const cupon = await aplicarCupon(client, codigo_cupon, id_cliente, esJuridica);
+
+    const subtotalSinCupon = productosConPrecio.reduce((acc, p) => acc + p.precio_unitario * p.cantidad, 0);
+    const descuentoCuponMonto = cupon ? Math.round(subtotalSinCupon * Number(cupon.descuento_pct) / 100) : 0;
+
+    return { total: subtotalSinCupon - descuentoCuponMonto, subtotal: subtotalSinCupon };
+  } finally {
+    client.release();
+  }
+}
