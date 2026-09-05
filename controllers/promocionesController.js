@@ -14,10 +14,7 @@ export const obtenerPromocionesActivas = async (req, res) => {
        WHERE p.estado = 'activa' AND CURRENT_DATE BETWEEN p.fecha_inicio AND p.fecha_fin
        GROUP BY p.id_promocion
        ORDER BY p.fecha_fin ASC`
-    ).catch((error) => {
-      console.warn("Tablas de promociones no disponibles:", error.message);
-      return { rows: [] };
-    });
+    );
 
     res.status(200).json({
       ok: true,

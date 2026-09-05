@@ -2,7 +2,7 @@ import pool from "../config/db.js";
 
     
 export const buscarPedidoPorId = (id_pedido)=>
-    pool.query(`SELECT id_pedido,total,estado,estado_pago
+    pool.query(`SELECT id_pedido,total,estado,estado_pago,id_cliente
         FROM pedidos
         WHERE id_pedido = $1`,
     [id_pedido]

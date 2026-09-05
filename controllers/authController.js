@@ -6,16 +6,31 @@ import pool from "../config/db.js"
 import crypto from "node:crypto"
 import transportador from "../config/email.js"
 
-const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || "http://localhost:3000/auth/google/callback"
-// Dominio público del frontend para los enlaces de los correos.
-// Se sobrescribió con FRONTEND_URL (Railway/.env), pero si esa variable trae
-// un dominio viejo (granova-backend-production.up.railway.app) esos enlaces
-// quedan rotos; por eso solo se aceptan valores locales/oficiales y cualquier
-// otro valor cae a https://www.granovaoficial.com.
 const FRONTEND_URL =
   process.env.FRONTEND_URL && /granovaoficial\.com|localhost/.test(process.env.FRONTEND_URL)
     ? process.env.FRONTEND_URL
     : "https://www.granovaoficial.com" 
+
+// Dominio público del backend para el callback de OAuth de Google.
+// Se sobrescribió antes con un dominio viejo (granova-backend-production.up.railway.app)
+// que rompía el login con Google; por eso solo se aceptan valores oficiales/locales y
+// cualquier otro cae a https://api.granovaoficial.com.
+// Fijar el redirect URI de producción de forma explícita y estable.
+// En producción SIEMPRE debe ser https://api.granovaoficial.com (el URI
+// autorizado en la consola de Google). Solo se usa localhost cuando hay una
+// señal clara de entorno local (API_URL o host apuntando a localhost); no se
+// depende de NODE_ENV, que puede faltar o venir mal formado en el hosting.
+const __apiEnv = (process.env.API_URL || "").replace(/\/+$/, "")
+const esLocal =
+  /localhost|127\.0\.0\.1|\.local/.test(__apiEnv) ||
+  (process.env.NODE_ENV !== "production" && /localhost/.test(process.env.GOOGLE_REDIRECT_URI || ""))
+
+const API_HOST = esLocal ? "http://localhost:3000" : "https://api.granovaoficial.com"
+
+const GOOGLE_REDIRECT_URI =
+  process.env.GOOGLE_REDIRECT_URI && /granovaoficial\.com|localhost/.test(process.env.GOOGLE_REDIRECT_URI)
+    ? process.env.GOOGLE_REDIRECT_URI.replace(/\/+$/, "") + "/auth/google/callback"
+    : `${API_HOST}/auth/google/callback`
 
 // Tiempo que dura válido el token de recuperación (independiente del cooldown de reenvío)
 const TOKEN_EXPIRACION_MIN = 60
@@ -29,15 +44,15 @@ const REENVIO_VERIFICACION_COOLDOWN_MIN = Number(process.env.REENVIO_VERIFICACIO
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 
 // ── Cloudflare Turnstile (anti-bot) ────────────────────────────
-// La Site Key va en el frontend (src/pages/Register.jsx y RegistroEmpresa.jsx).
-// La Secret Key va aquí en el .env del backend: TURNSTILE_SECRET_KEY
+// La Site Key va en el frontend (VITE_API_FRONTEND).
+// La Secret Key va aquí en el .env del backend: API_BACKEND
 // La obtienes en Turnstile → Manage Widgets al crear tu widget.
-const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY
+const TURNSTILE_SECRET_KEY = process.env.API_BACKEND
 
 async function verificarTurnstile(token) {
   // Si no hay Secret Key configurada, permitimos el registro (modo desarrollo/demo SENA).
-  if (!TURNSTILE_SECRET_KEY) return true
-  if (!token) return false
+  if (!TURNSTILE_SECRET_KEY) return { ok: true }
+  if (!token) return { ok: false, codigos: ["missing-input-response"] }
   try {
     const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
       method: "POST",
@@ -45,11 +60,25 @@ async function verificarTurnstile(token) {
       body: JSON.stringify({ secret: TURNSTILE_SECRET_KEY, response: token }),
     })
     const data = await res.json()
-    return Boolean(data.success)
+    return { ok: Boolean(data.success), codigos: data["error-codes"] || [] }
   } catch {
     // Si falla la red con Cloudflare, rechazamos por seguridad.
-    return false
+    return { ok: false, codigos: ["network-error"] }
   }
+}
+
+// Mensaje de diagnóstico claro según el error de Cloudflare Turnstile.
+function mensajeTurnstile(codigos = []) {
+  if (codigos.includes("invalid-input-secret") || codigos.includes("missing-input-secret")) {
+    return "Verificación anti-bot no configurada correctamente. Informa a soporte: al parecer hay un problema con las claves de Cloudflare."
+  }
+  if (codigos.includes("invalid-input-response") || codigos.includes("timeout-or-duplicate") || codigos.includes("bad request")) {
+    return "No se pudo verificar que eres humano. Recarga la página e intenta de nuevo."
+  }
+  if (codigos.includes("network-error")) {
+    return "No se pudo contactar el servicio de verificación anti-bot. Intenta más tarde."
+  }
+  return "No se pudo verificar que eres humano. Inténtalo de nuevo."
 }
 // Política mínima de contraseña (consistente con el formulario de registro):
 // al menos 6 caracteres, una mayúscula, un número y un carácter especial.
@@ -111,8 +140,8 @@ export async function register(req, res) {
 
         // Cloudflare Turnstile: rechazar registros de bots si la clave está configurada.
         const turnstileValido = await verificarTurnstile(turnstileToken)
-        if (!turnstileValido) {
-            return res.status(400).json({ error: "No se pudo verificar que eres humano. Inténtalo de nuevo." })
+        if (!turnstileValido.ok) {
+            return res.status(400).json({ error: mensajeTurnstile(turnstileValido.codigos) })
         }
 
         if (!EMAIL_REGEX.test(String(email))) {

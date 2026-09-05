@@ -298,6 +298,17 @@ const eliminarTodosLosReportes = async (req, res) => {
 const bloquearEmpleado = async (req, res) => {
   try {
     const { id } = req.params
+    // Solo se permite bloquear a un empleado cuando acumula al menos 3 reportes.
+    const conteo = await pool.query(
+      `SELECT COUNT(*)::int AS total FROM reportes_empleado WHERE id_empleado = $1`,
+      [id]
+    )
+    if (conteo.rows[0].total < 3) {
+      return res.status(400).json({
+        ok: false,
+        error: `El empleado solo tiene ${conteo.rows[0].total} reporte${conteo.rows[0].total === 1 ? '' : 's'} de 3. Debe llegar a 3 para poder bloquearlo.`,
+      })
+    }
     const result = await pool.query(
       `UPDATE usuarios SET estado = 'bloqueado', fecha_actualizacion = NOW()
        WHERE id_usuario = $1 AND rol = 'empleado' RETURNING id_usuario`,

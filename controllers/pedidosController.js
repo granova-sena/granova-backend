@@ -80,10 +80,10 @@ export const crearPedido = async (req, res) => {
 
     const esMayorista = clienteExiste.rows[0].tipo_cliente === 'mayorista';
     // Personas jurídicas no usan cupones de lealtad: tienen su descuento de
-    // empresa (configurable en la tabla parametros_cafe, default 15%).
+    // empresa (configurable en la tabla parametros_cafe, default 20%).
     const esJuridica = clienteExiste.rows[0].tipo_persona === 'juridica';
     const descuentoEmpresaPct = esJuridica
-      ? await obtenerParametro('descuento_empresa_pct', 15)
+      ? await obtenerParametro('descuento_empresa_pct', 20)
       : 0;
 
     // Premio de lealtad: cada 5 unidades acumuladas dan 10% (persona natural).

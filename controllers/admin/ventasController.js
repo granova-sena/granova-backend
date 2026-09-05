@@ -35,7 +35,7 @@ async function computarItems(client, items, cliente, totalUnidades) {
   const esMayorista = cliente.tipo_cliente === 'mayorista';
   const esJuridica = cliente.tipo_persona === 'juridica';
   const descuentoEmpresaPct = esJuridica
-    ? await obtenerParametro('descuento_empresa_pct', 15)
+    ? await obtenerParametro('descuento_empresa_pct', 20)
     : 0;
 
   const pctVolumen = esMayorista

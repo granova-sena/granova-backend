@@ -12,7 +12,14 @@ const escapeHtml = (valor) =>
 // Envía la cotización por correo al cliente
 // ─────────────────────────────────────────────────────────────
 export const enviarCotizacion = async (req, res) => {
-  const { email, nombre, productos, subtotal, descuento, total, numero } = req.body
+  const { email, nombre, productos, subtotal, descuento, total, numero, id_cotizacion } = req.body
+
+  // Ruta de detalle de la cotización: /cliente/cotizaciones/:id muestra el
+  // documento y permite comprar desde la propia cotización (flujo GRN-58).
+  const URL_FRONTEND = process.env.FRONTEND_URL || "https://www.granovaoficial.com"
+  const linkCotizacion = id_cotizacion
+    ? `${URL_FRONTEND}/cliente/cotizaciones/${id_cotizacion}`
+    : `${URL_FRONTEND}/cliente/cotizacion`
 
   if (!email || !nombre || !productos?.length) {
     return res.status(400).json({
@@ -64,6 +71,11 @@ export const enviarCotizacion = async (req, res) => {
           <p>Subtotal: <strong>$${Number(subtotal).toLocaleString()}</strong></p>
           <p style="color: #2D5A27;">Descuento: <strong>- $${Number(descuento).toLocaleString()}</strong></p>
           <h3>TOTAL (IVA incluido): $${Number(total).toLocaleString()}</h3>
+        </div>
+        <div style="text-align: center; margin: 24px 0;">
+          <a href="${linkCotizacion}" style="background-color: #6FA98C; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
+            Ver mi cotización
+          </a>
         </div>
         <hr style="border: none; border-top: 1px solid #e7e7e7; margin: 20px 0;">
         <p style="color: #888888; font-size: 12px;">

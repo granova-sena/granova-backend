@@ -99,7 +99,8 @@ if (anterior === 0) {
 
 const getPedidos = async (req, res) => {
   try {
-    const { tab = 'Todos', search = '', page = 1, limit = 10 } = req.query;
+    const { tab = 'Todos', search = '', page = 1, limit = 10,
+            operacion = '', estado_pago = '', metodo_pago = '', manual = '' } = req.query;
 
     const result = await pool.query(`
       SELECT
@@ -157,6 +158,22 @@ const getPedidos = async (req, res) => {
         normalizar(p.producto).includes(q) ||
         normalizar(p.pedido).includes(q)
       );
+    }
+
+    // Filtros combinables del panel de gestión (se aplican sobre todo el listado,
+    // no solo la página visible): operación, estado de pago, método y pago manual.
+    if (operacion) {
+      pedidos = pedidos.filter(p => String(p.operacion || 'domicilio') === String(operacion));
+    }
+    if (estado_pago) {
+      pedidos = pedidos.filter(p => String(p.estado_pago || 'sin_dato') === String(estado_pago));
+    }
+    if (metodo_pago) {
+      pedidos = pedidos.filter(p => String(p.metodo_pago || 'sin_dato') === String(metodo_pago));
+    }
+    if (manual === 'true' || manual === true) {
+      const manuales = ['transferencia', 'efectivo', 'contra_entrega'];
+      pedidos = pedidos.filter(p => manuales.includes(String(p.metodo_pago || '').toLowerCase()));
     }
 
     const totalFiltrados = pedidos.length;

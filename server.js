@@ -66,7 +66,13 @@ app.use(cors({
 
 app.disable('x-powered-by')
 // Helmet: cabeceras de seguridad (CSP, HSTS, X-Content-Type-Options, etc.)
-app.use(helmet())
+// Se desactiva crossOriginOpenerPolicy porque su valor por defecto
+// ("same-origin") rompe la referencia window.opener del popup de Google
+// al cruzar de api.granovaoficial.com a www.granovaoficial.com, haciendo que
+// el login con Google caiga en /login del frontend en vez de completarse.
+app.use(helmet({
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' }
+}))
 // Límite de body: un payload gigante rompería la memoria (pedidos, ventas, reseñas).
 app.use(express.json({ limit: "1mb" }))
 app.use(express.urlencoded({ extended: true, limit: "1mb" }))

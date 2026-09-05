@@ -13,6 +13,7 @@ export const listarPromociones = async (req, res) => {
     const promos = await pool.query(
       `SELECT pr.id_promocion, pr.nombre, pr.tipo_descuento, pr.valor_descuento, pr.fecha_inicio, pr.fecha_fin, pr.estado
        FROM promociones pr
+       WHERE pr.estado <> 'finalizada'
        ORDER BY pr.fecha_fin DESC NULLS LAST, pr.id_promocion DESC`
     );
 
@@ -61,6 +62,9 @@ export const crearPromocion = async (req, res) => {
   }
   if (!fecha_fin) {
     return res.status(400).json({ ok: false, mensaje: "fecha_fin es obligatoria" });
+  }
+  if (!Array.isArray(productos) || productos.length === 0) {
+    return res.status(400).json({ ok: false, mensaje: "Debes seleccionar al menos un producto para la promoción" });
   }
 
   const client = await pool.connect();
@@ -148,6 +152,10 @@ export const actualizarPromocion = async (req, res) => {
       await client.query(`UPDATE promociones SET estado = $1 WHERE id_promocion = $2`, [estado, id]);
     }
     if (Array.isArray(productos)) {
+      if (productos.length === 0) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ ok: false, mensaje: "Debes seleccionar al menos un producto para la promoción" });
+      }
       await client.query(`DELETE FROM promocion_productos WHERE id_promocion = $1`, [id]);
       for (const idProducto of productos) {
         await client.query(

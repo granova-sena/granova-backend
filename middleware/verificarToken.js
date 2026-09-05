@@ -15,6 +15,8 @@ export function verificarToken(req, res, next) {
     next()
   } catch (error) {
     console.error("Error en verificarToken:", error)
-    return res.status(403).json({ error: "Error en la autenticación" })
+    // Token inválido/expirado = no autenticado (401). Nunca 403, que es el
+    // código reservado para "autenticado pero sin permiso".
+    return res.status(401).json({ error: "Error en la autenticación" })
   }
 }

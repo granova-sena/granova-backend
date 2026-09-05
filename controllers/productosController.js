@@ -4,7 +4,7 @@ import pool from "../config/db.js"
 export const obtenerProductos = async (req, res) => {
   try {
     const resultado = await pool.query(`
-      SELECT 
+      SELECT DISTINCT ON (p.id_producto)
         p.id_producto,
         p.nombre,
         p.descripcion,
@@ -41,6 +41,7 @@ export const obtenerProductos = async (req, res) => {
       LEFT JOIN promocion_productos pp ON pp.id_producto = p.id_producto
       LEFT JOIN promociones pr ON pr.id_promocion = pp.id_promocion
         AND pr.estado = 'activa'
+        AND (pr.fecha_inicio IS NULL OR pr.fecha_inicio <= CURRENT_DATE)
         AND (pr.fecha_fin IS NULL OR pr.fecha_fin >= CURRENT_DATE)
       WHERE p.estado = 'activo'
         AND (
@@ -48,7 +49,7 @@ export const obtenerProductos = async (req, res) => {
           OR EXISTS (SELECT 1 FROM formatos_producto f
                      WHERE f.id_producto = p.id_producto AND f.activo = true AND f.stock > 0)
         )
-      ORDER BY p.nombre ASC
+      ORDER BY p.id_producto, (pr.id_promocion IS NOT NULL) DESC, p.nombre ASC
     `)
 
     const descuentos = await pool.query(
