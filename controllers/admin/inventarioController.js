@@ -705,16 +705,32 @@ const restablecerProducto = async (req, res) => {
         const estadoAnterior = calcularEstado(stockActual, capacidad);
         const estadoNuevo = calcularEstado(nuevoStock, capacidad);
 
-        const result = await pool.query(`
-      UPDATE productos SET stock = $1 WHERE id_producto = $2
-      RETURNING id_producto, stock
-    `, [nuevoStock, id]);
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
 
-        if (estadoAnterior !== 'Disponible' && estadoNuevo === 'Disponible') {
-            registrarResuelta();
+            const result = await client.query(`
+        UPDATE productos SET stock = $1 WHERE id_producto = $2
+        RETURNING id_producto, stock
+      `, [nuevoStock, id]);
+
+            // Mantener sincrónico el stock del catálogo (formatos_producto):
+            // sin esto el panel y los chips "quedan N" vuelven a desfasarse.
+            await client.query(`UPDATE formatos_producto SET stock = $1 WHERE id_producto = $2 AND activo = true`, [nuevoStock, id]);
+
+            await client.query('COMMIT');
+
+            if (estadoAnterior !== 'Disponible' && estadoNuevo === 'Disponible') {
+                registrarResuelta();
+            }
+
+            res.json({ ok: true, producto: result.rows[0] });
+        } catch (err) {
+            await client.query('ROLLBACK');
+            throw err;
+        } finally {
+            client.release();
         }
-
-        res.json({ ok: true, producto: result.rows[0] });
     } catch (error) {
         console.error(error);
         res.status(500).json({ ok: false, error: error.message });
