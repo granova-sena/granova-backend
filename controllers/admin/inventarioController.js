@@ -221,7 +221,7 @@ const getInventarioPorFinca = async (req, res) => {
              p.id_producto, p.nombre AS producto_nombre, p.precio, p.precio_mayorista, p.stock,
              p.id_presentacion, pc.nombre AS presentacion_nombre, pc.kg_equivalente
       FROM fincas f
-      JOIN lotes l ON l.finca = f.nombre
+      LEFT JOIN lotes l ON l.finca = f.nombre
       LEFT JOIN productos p ON p.id_lote = l.id_lote AND p.estado = 'activo'
       LEFT JOIN presentaciones_catalogo pc ON pc.id_presentacion = p.id_presentacion
       ORDER BY f.nombre, l.codigo_lote, p.nombre
@@ -234,7 +234,7 @@ const getInventarioPorFinca = async (req, res) => {
             }
             const finca = fincas.get(row.id_finca);
 
-            if (!finca.lotes.has(row.id_lote)) {
+            if (row.id_lote && !finca.lotes.has(row.id_lote)) {
                 finca.lotes.set(row.id_lote, {
                     id_lote: row.id_lote,
                     codigo_lote: row.codigo_lote,

@@ -194,7 +194,7 @@ const procesarLote = async (req, res) => {
           `INSERT INTO productos (
              id_lote, nombre, tipo_cafe, presentacion, id_presentacion, precio, precio_mayorista,
              costo_unitario, stock, estado, categoria_producto, creado_por, fecha_creacion
-           ) VALUES ($1, $2, 'pergamino', $3, $4, $5, $6, $7, $8, 'activo', 'cafe', $9, NOW())
+           ) VALUES ($1, $2, 'molido', $3, $4, $5, $6, $7, $8, 'activo', 'cafe', $9, NOW())
            RETURNING id_producto`,
           [id, nombre, d.presentacion.nombre, d.presentacion.id_presentacion,
            Math.round(precioPublico), Math.round(precioMayorista), Math.round(costoUnitario),

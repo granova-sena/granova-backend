@@ -20,6 +20,13 @@ export async function crearFinca(req, res) {
         if (!nombre || !nombre.trim()) {
             return res.status(400).json({ ok: false, error: "El nombre es obligatorio" })
         }
+        const existe = await pool.query(
+            "SELECT 1 FROM fincas WHERE LOWER(nombre) = LOWER($1) LIMIT 1",
+            [nombre.trim()]
+        )
+        if (existe.rows.length > 0) {
+            return res.status(400).json({ ok: false, error: "Ya existe una finca con ese nombre" })
+        }
         const result = await pool.query(
             `INSERT INTO fincas (nombre, region, altitud, lat, lng, estado)
              VALUES ($1, $2, $3, $4, $5, 'activa') RETURNING id`,
@@ -37,6 +44,15 @@ export async function actualizarFinca(req, res) {
     try {
         const { id } = req.params
         const { nombre, region, altitud, lat, lng } = req.body
+        if (nombre && nombre.trim()) {
+            const existe = await pool.query(
+                "SELECT 1 FROM fincas WHERE LOWER(nombre) = LOWER($1) AND id <> $2 LIMIT 1",
+                [nombre.trim(), id]
+            )
+            if (existe.rows.length > 0) {
+                return res.status(400).json({ ok: false, error: "Ya existe una finca con ese nombre" })
+            }
+        }
         const result = await pool.query(
             `UPDATE fincas SET nombre = COALESCE($1, nombre), region = COALESCE($2, region),
              altitud = COALESCE($3, altitud), lat = COALESCE($4, lat), lng = COALESCE($5, lng)

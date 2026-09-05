@@ -150,18 +150,64 @@ const listarCosechas = async (req, res) => {
 }
 
 // PATCH /inventario/cosechas/:id/cancelar
+// Cancela la cosecha planeada y RESTAURA el lote: como al planearla el café
+// pesado pasó a "kg_en_proceso" (cuando vino de Procesar lote con
+// marcar_en_proceso), al cancelar hay que devolver ese kg al disponible del
+// lote para que el inventario cuadre. Sin esto, el café quedaba "atascado"
+// en proceso y el lote nunca recuperaba sus kg.
 const cancelarCosecha = async (req, res) => {
+  const client = await pool.connect()
   try {
     const { id } = req.params
-    const result = await pool.query(
-      `UPDATE cosechas_planeadas SET estado = 'cancelada' WHERE id_cosecha = $1 AND estado = 'planeada' RETURNING id_cosecha`,
+
+    await client.query("BEGIN")
+
+    const cosechaRes = await client.query(
+      `SELECT * FROM cosechas_planeadas WHERE id_cosecha = $1 AND estado = 'planeada' FOR UPDATE`,
       [id]
     )
-    if (result.rows.length === 0) return res.status(404).json({ ok: false, error: "Cosecha no encontrada o ya no está planeada" })
-    res.json({ ok: true })
+    if (cosechaRes.rows.length === 0) {
+      await client.query("ROLLBACK")
+      return res.status(404).json({ ok: false, error: "Cosecha no encontrada o ya no está planeada" })
+    }
+    const cosecha = cosechaRes.rows[0]
+
+    // Kg "en proceso" que se reservaron al planear (cantidad × kg_equivalente)
+    const detalleRes = await client.query(
+      `SELECT cd.cantidad, pc.kg_equivalente
+       FROM cosecha_detalle cd
+       JOIN presentaciones_catalogo pc ON pc.id_presentacion = cd.id_presentacion
+       WHERE cd.id_cosecha = $1`,
+      [id]
+    )
+    const kgEnProceso = detalleRes.rows.reduce(
+      (s, d) => s + Number(d.cantidad) * Number(d.kg_equivalente),
+      0
+    )
+
+    // Devolver ese kg al lote (sale de "en proceso" y vuelve a estar disponible)
+    if (kgEnProceso > 0) {
+      await client.query(
+        `UPDATE lotes SET
+           kg_en_proceso = GREATEST(kg_en_proceso - $1, 0)
+         WHERE id_lote = $2`,
+        [kgEnProceso, cosecha.id_lote]
+      )
+    }
+
+    await client.query(
+      `UPDATE cosechas_planeadas SET estado = 'cancelada' WHERE id_cosecha = $1`,
+      [id]
+    )
+
+    await client.query("COMMIT")
+    res.json({ ok: true, kg_restaurados: kgEnProceso, id_lote: cosecha.id_lote, id_finca: cosecha.id_finca })
   } catch (error) {
+    await client.query("ROLLBACK")
     console.error(error)
     res.status(500).json({ ok: false, error: error.message })
+  } finally {
+    client.release()
   }
 }
 
@@ -178,6 +224,10 @@ const cancelarCosecha = async (req, res) => {
 // violaba el constraint y tumbaba el endpoint con 500.
 const confirmarCosecha = async (req, res) => {
   const client = await pool.connect()
+  console.log("[CONFIRMAR_COSECHA] ====================================")
+  console.log("[CONFIRMAR_COSECHA] req.params:", req.params)
+  console.log("[CONFIRMAR_COSECHA] req.body:", req.body)
+  console.log("[CONFIRMAR_COSECHA] req.usuario:", req.usuario ? { id: req.usuario.id, rol: req.usuario.rol } : "SIN TOKEN / NO AUTENTICADO")
   try {
     const { id } = req.params
 
