@@ -224,10 +224,6 @@ const cancelarCosecha = async (req, res) => {
 // violaba el constraint y tumbaba el endpoint con 500.
 const confirmarCosecha = async (req, res) => {
   const client = await pool.connect()
-  console.log("[CONFIRMAR_COSECHA] ====================================")
-  console.log("[CONFIRMAR_COSECHA] req.params:", req.params)
-  console.log("[CONFIRMAR_COSECHA] req.body:", req.body)
-  console.log("[CONFIRMAR_COSECHA] req.usuario:", req.usuario ? { id: req.usuario.id, rol: req.usuario.rol } : "SIN TOKEN / NO AUTENTICADO")
   try {
     const { id } = req.params
 
