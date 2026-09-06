@@ -1,170 +1,25 @@
 import pool from "../config/db.js"
 import {
-  obtenerAcceptanceToken,
-  calcularFirmaIntegridad,
-  verificarFirmaWebhook,
-  crearTransaccionWompi,
   consultarTransaccionWompi,
-  listarBancosPSE,
+  verificarFirmaWebhook,
 } from "../services/wompiService.js"
 import { aplicarResultadoPago } from "../services/confirmarPagoService.js"
-import { MONEDA_DEFECTO } from "../config/wompi.js"
 
 // ─────────────────────────────────────────
 // Wompi (pasarela REAL, modo TEST/sandbox).
-// Los efectos del resultado (puntos, premio, cupón, stock, notificaciones)
-// los resuelve services/confirmarPagoService.js, igual que el simulador.
+// La transacción la crea el CHECKOUT/Widget de Wompi del lado del medio de
+// pago; acá solo consultamos su estado y aplicamos el desenlace en nuestro
+// modelo (services/confirmarPagoService.js), igual que el simulador.
 // ─────────────────────────────────────────
 
 const ESTADOS_FINALES = ["APPROVED", "DECLINED", "ERROR", "VOIDED"]
 
-function referenciaParaPedido(id_pedido) {
-  return `GRANOVA-${id_pedido}-${Date.now()}`
-}
-
-async function verificarPedidoDelCliente(id_pedido, id_cliente) {
-  const resultado = await pool.query(
-    `SELECT p.id_pedido, p.id_cliente, p.total, p.estado_pago, p.estado, p.metodo_pago,
-            c.tipo_persona, c.tipo_documento, c.numero_documento
-     FROM pedidos p
-     JOIN clientes c ON c.id_cliente = p.id_cliente
-     WHERE p.id_pedido = $1 AND p.id_cliente = $2`,
-    [id_pedido, id_cliente]
-  )
-  return resultado.rows[0]
-}
-
-function guardarPaymentIntent(id_pedido, idTransaccion) {
-  return pool.query(
-    `UPDATE pedidos SET payment_intent_id = $1 WHERE id_pedido = $2`,
-    [idTransaccion, id_pedido]
-  )
-}
-
-function actualizarReferenciaDelPago(id_pedido, referencia) {
-  return pool.query(
-    `UPDATE pagos SET referencia = $1 WHERE id_pedido = $2`,
-    [referencia, id_pedido]
-  )
-}
-
-// Crea la transacción en Wompi y guarda la trazabilidad local.
-async function iniciarPagoWompi(req, res, construirMetodoPago) {
-  const { id_pedido } = req.body
-
-  if (!id_pedido) {
-    return res.status(400).json({ ok: false, mensaje: "El id del pedido es obligatorio" })
-  }
-
-  try {
-    const pedido = await verificarPedidoDelCliente(id_pedido, req.usuario.id)
-    if (!pedido) {
-      return res.status(403).json({ ok: false, mensaje: "No tienes permisos para pagar este pedido" })
-    }
-    if (!["pendiente", "fallido"].includes(pedido.estado_pago)) {
-      return res.status(400).json({ ok: false, mensaje: "Este pedido ya fue procesado o no requiere pago" })
-    }
-
-    const montoEnCentavos = Math.round(Number(pedido.total) * 100)
-    if (!Number.isFinite(montoEnCentavos) || montoEnCentavos <= 0) {
-      return res.status(400).json({ ok: false, mensaje: "El pedido no tiene un monto válido" })
-    }
-
-    const referencia = referenciaParaPedido(id_pedido)
-    const acceptanceToken = await obtenerAcceptanceToken()
-    const firmaIntegridad = calcularFirmaIntegridad({ referencia, montoEnCentavos })
-
-    const metodoPago = await construirMetodoPago(req, res, pedido)
-    const transaccion = await crearTransaccionWompi({
-      montoEnCentavos,
-      moneda: MONEDA_DEFECTO,
-      emailCliente: req.usuario.email,
-      referencia,
-      acceptanceToken,
-      firmaIntegridad,
-      metodoPago,
-    })
-
-    // La referencia local del pago pasa a ser la de Wompi, para que la
-    // consulta/actualización posterior encuentre este intento.
-    await actualizarReferenciaDelPago(id_pedido, referencia)
-    await guardarPaymentIntent(id_pedido, transaccion.id)
-
-    return res.status(201).json({
-      ok: true,
-      id_transaccion: transaccion.id,
-      estado: transaccion.status,
-    })
-  } catch (error) {
-    console.error("Error creando pago Wompi:", error.message)
-    return res.status(error?.status || 502).json({
-      ok: false,
-      mensaje: error?.message || "No se pudo procesar el pago con Wompi",
-    })
-  }
-}
-
-// ── NEQUI: requiere el celular del cliente (10 dígitos, empieza por 3) ──
-export const pagarConNequi = async (req, res) => {
-  const { numero_celular } = req.body
-  if (!numero_celular || !/^3\d{9}$/.test(numero_celular)) {
-    return res.status(400).json({
-      ok: false,
-      mensaje: "El número de celular debe tener 10 dígitos y empezar por 3",
-    })
-  }
-  return iniciarPagoWompi(req, res, () => ({
-    type: "NEQUI",
-    phone_number: numero_celular,
-  }))
-}
-
-// ── TARJETA: llega TOKENIZADA (se tokeniza en el frontend con la llave pública) ──
-export const crearPagoTarjeta = async (req, res) => {
-  const { token_tarjeta, cuotas } = req.body
-  if (!token_tarjeta) {
-    return res.status(400).json({ ok: false, mensaje: "Falta el token de la tarjeta" })
-  }
-  return iniciarPagoWompi(req, res, () => ({
-    type: "CARD",
-    installments: Number(cuotas) || 1,
-    token: token_tarjeta,
-  }))
-}
-
-// ── PSE: requiere banco y documento del cliente ──
-export const pagarConPSE = async (req, res) => {
-  const { financial_institution_code, tipo_documento, numero_documento } = req.body
-  if (!financial_institution_code) {
-    return res.status(400).json({ ok: false, mensaje: "Selecciona el banco para continuar" })
-  }
-  return iniciarPagoWompi(req, res, (_r, _s, pedido) => {
-    const docTipo = tipo_documento || pedido.tipo_documento
-    const docNumero = numero_documento || pedido.numero_documento
-    if (!docTipo || !docNumero) {
-      const error = new Error("Necesitamos tu tipo y número de documento para procesar el pago")
-      error.status = 400
-      throw error
-    }
-    return {
-      type: "PSE",
-      user_type: pedido.tipo_persona === "juridica" ? 1 : 0,
-      user_legal_id_type: docTipo,
-      user_legal_id: docNumero,
-      financial_institution_code,
-      payment_description: `Pago Granova pedido #${pedido.id_pedido}`,
-    }
-  })
-}
-
-export const listarBancos = async (_req, res) => {
-  try {
-    const bancos = await listarBancosPSE()
-    res.status(200).json({ ok: true, data: bancos })
-  } catch (error) {
-    console.error("Error listando bancos PSE:", error.message)
-    res.status(502).json({ ok: false, mensaje: "No se pudieron obtener los bancos" })
-  }
+// Método que reporta Wompi → método de nuestro pedido.
+const METODO_LOCAL_POR_WOMPI = {
+  CARD: "tarjeta",
+  NEQUI: "nequi",
+  PSE: "pse",
+  DAVIPLATA: "daviplata",
 }
 
 // Red de seguridad para el polling del frontend: si Wompi ya resolvió el
@@ -180,7 +35,7 @@ export const consultarTransaccion = async (req, res) => {
     const transaccion = await consultarTransaccionWompi(id)
 
     if (ESTADOS_FINALES.includes(transaccion.status)) {
-      await sincronizarEstadoPorTransaccion(transaccion.id, transaccion.status)
+      await sincronizarEstadoPorTransaccion(transaccion)
     }
 
     return res.status(200).json({
@@ -200,11 +55,11 @@ export const consultarTransaccion = async (req, res) => {
   }
 }
 
-async function sincronizarEstadoPorTransaccion(idTransaccion, estadoWompi) {
+async function sincronizarEstadoPorTransaccion(transaccion) {
   const client = await pool.connect()
   try {
     await client.query("BEGIN")
-    const resultado = await aplicarEstadoTransaccion(client, idTransaccion, estadoWompi)
+    const resultado = await aplicarEstadoTransaccion(client, transaccion)
     await client.query("COMMIT")
     return resultado
   } catch (error) {
@@ -242,7 +97,12 @@ export const webhookWompi = async (req, res) => {
     }
 
     await client.query("BEGIN")
-    const resultado = await aplicarEstadoTransaccion(client, transaccion.id, transaccion.status)
+    const resultado = await aplicarEstadoTransaccion(client, {
+      id: transaccion.id,
+      reference: transaccion.reference,
+      status: transaccion.status,
+      payment_method_type: transaccion.payment_method_type,
+    })
     await client.query("COMMIT")
 
     if (!resultado.encontrado) {
@@ -261,22 +121,43 @@ export const webhookWompi = async (req, res) => {
 
 const estadoPagoParaResultado = (estado) => (estado === "APPROVED" ? "aprobado" : "rechazado")
 
+const estadoPagoFinal = (estado) => (estado === "APPROVED" ? "pagado" : "fallido")
+
 // Aplica el estado final de Wompi a nuestro modelo, dentro de una transacción abierta.
 // Idempotente: aplicarResultadoPago no repite un pago ya resuelto.
-async function aplicarEstadoTransaccion(client, idTransaccion, estadoWompi) {
-  if (!ESTADOS_FINALES.includes(estadoWompi)) {
-    return { encontrado: true, aplicado: false }
+//
+// El pedido se localiza por `pedidos.payment_intent_id` (flujo de la API
+// actual) O por la referencia GRANOVA-... que quedó en `pagos.referencia`
+// (flujo del Checkout/Widget de Wompi, que crea la transacción del lado del
+// medio de pago y nunca llega a guardar el payment_intent_id).
+async function aplicarEstadoTransaccion(client, transaccion) {
+  const { id, reference, status, payment_method_type } = transaccion
+
+  if (!ESTADOS_FINALES.includes(status)) {
+    return { encontrado: true, aplicado: false, estado_pago: null }
   }
 
   const pedido = await client.query(
-    `SELECT id_pedido FROM pedidos WHERE payment_intent_id = $1`,
-    [idTransaccion]
+    `SELECT p.id_pedido
+       FROM pedidos p
+       LEFT JOIN pagos pg ON pg.id_pedido = p.id_pedido
+      WHERE p.payment_intent_id = $1 OR pg.referencia = $2
+      ORDER BY pg.id_pago DESC
+      LIMIT 1`,
+    [id, reference || id]
   )
   if (pedido.rows.length === 0) {
-    return { encontrado: false, aplicado: false }
+    return { encontrado: false, aplicado: false, estado_pago: null }
   }
 
   const id_pedido = pedido.rows[0].id_pedido
+
+  // Deja registrado el id de la transacción para que las siguientes
+  // consultas/wbhooks también la localicen por payment_intent_id.
+  await client.query(
+    `UPDATE pedidos SET payment_intent_id = COALESCE(payment_intent_id, $1) WHERE id_pedido = $2`,
+    [id, id_pedido]
+  )
 
   const pago = await client.query(
     `SELECT pg.id_pago, pg.id_pedido, pg.metodo_pago, pg.monto, pg.estado,
@@ -290,9 +171,73 @@ async function aplicarEstadoTransaccion(client, idTransaccion, estadoWompi) {
     [id_pedido]
   )
   if (pago.rows.length === 0) {
-    return { encontrado: true, aplicado: false }
+    return { encontrado: true, aplicado: false, estado_pago: null }
   }
 
-  const resultado = await aplicarResultadoPago(client, pago.rows[0], estadoPagoParaResultado(estadoWompi))
-  return { encontrado: true, aplicado: !!resultado }
+  // Si el cliente pagó con un medio distinto al que eligió en el pedido,
+  // reflejamos el método real que reporta Wompi.
+  const metodoReal = METODO_LOCAL_POR_WOMPI[payment_method_type]
+  if (metodoReal && pago.rows[0].metodo_pago !== metodoReal) {
+    await client.query(
+      `UPDATE pagos SET metodo_pago = $1 WHERE id_pago = $2`,
+      [metodoReal, pago.rows[0].id_pago]
+    )
+    pago.rows[0].metodo_pago = metodoReal
+  }
+
+  const resultado = await aplicarResultadoPago(client, pago.rows[0], estadoPagoParaResultado(status))
+  return { encontrado: true, aplicado: !!resultado, estado_pago: resultado?.estado_pago || estadoPagoFinal(status) }
+}
+
+// ─────────────────────────────────────────
+// POST /api/pagos/wompi/confirmar — lo llama la UI justo después de cerrar
+// el WidgetCheckout. Verifica la transacción real contra Wompi y aplica el
+// desenlace (aprobado/rechazado) de forma idempotente.
+// ─────────────────────────────────────────
+export const confirmarPagoWompi = async (req, res) => {
+  const { transaction_id } = req.body || {}
+
+  if (!transaction_id) {
+    return res.status(400).json({ ok: false, mensaje: "El id de la transacción es obligatorio" })
+  }
+
+  const client = await pool.connect()
+  try {
+    const transaccion = await consultarTransaccionWompi(transaction_id)
+
+    if (!ESTADOS_FINALES.includes(transaccion.status)) {
+      return res.status(503).json({
+        ok: false,
+        mensaje: "El pago sigue pendiente de confirmación por el medio de pago. Se confirmará automáticamente al llegar.",
+      })
+    }
+
+    await client.query("BEGIN")
+    const resultado = await aplicarEstadoTransaccion(client, {
+      id: transaccion.id,
+      reference: transaccion.reference,
+      status: transaccion.status,
+      payment_method_type: transaccion.payment_method_type,
+    })
+    await client.query("COMMIT")
+
+    if (!resultado.encontrado) {
+      return res.status(404).json({ ok: false, mensaje: "Esta transacción no corresponde a un pedido pendiente" })
+    }
+
+    return res.json({
+      ok: true,
+      data: {
+        id_transaccion: transaccion.id,
+        metodo_pago: METODO_LOCAL_POR_WOMPI[transaccion.payment_method_type] || null,
+        ...resultado,
+      },
+    })
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {})
+    console.error("Error confirmando pago Wompi:", error.message)
+    return res.status(error?.status || 502).json({ ok: false, mensaje: "No se pudo confirmar el pago con Wompi" })
+  } finally {
+    client.release()
+  }
 }

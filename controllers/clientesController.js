@@ -55,7 +55,8 @@ export const obtenerCliente = async (req, res) => {
   try {
     const resultado = await pool.query(
       `SELECT id_cliente, nombre, apellido, email, verificado, fecha_creacion, puntos, unidades_acumuladas,
-              tipo_persona, tipo_documento, numero_documento, digito_verificacion, razon_social, tipo_cliente
+              tipo_persona, tipo_documento, numero_documento, digito_verificacion, razon_social, tipo_cliente,
+              telefono, direccion, ciudad, departamento
        FROM clientes
        WHERE id_cliente = $1`,
       [id]
@@ -138,5 +139,66 @@ export const actualizarCliente = async (req, res) => {
     }
     console.error("Error actualizando cliente:", error.message);
     res.status(500).json({ ok: false, mensaje: "Error interno al actualizar el cliente" });
+  }
+};
+
+// PATCH /api/clientes/:id/contacto — actualiza los datos de contacto
+// (teléfono, dirección, ciudad, departamento). No toca la identificación.
+// Solo el propio cliente o un ADMIN.
+export const actualizarContactoCliente = async (req, res) => {
+  const { id } = req.params;
+
+  if (Number.isNaN(Number(id))) {
+    return res.status(400).json({ ok: false, mensaje: "El id del cliente debe ser un número" });
+  }
+
+  // Mismo criterio que el GET: solo el propio cliente o un ADMIN.
+  const esAdmin = req.usuario?.rol === "admin";
+  const esDueno = req.usuario?.id === Number(id);
+  if (!esAdmin && !esDueno) {
+    return res.status(403).json({ ok: false, mensaje: "No tienes permiso para editar este perfil" });
+  }
+
+  const { telefono, direccion, ciudad, departamento } = req.body;
+
+  if (telefono !== undefined) {
+    const telefonoLimpio = String(telefono).replace(/\s/g, "");
+    if (!/^\d{7,15}$/.test(telefonoLimpio)) {
+      return res.status(400).json({ ok: false, mensaje: "El teléfono debe tener entre 7 y 15 dígitos" });
+    }
+  }
+
+  const campos = [];
+  const valores = [];
+  const actualizaciones = { telefono, direccion, ciudad, departamento };
+
+  for (const [campo, valor] of Object.entries(actualizaciones)) {
+    if (valor !== undefined) {
+      campos.push(`${campo} = $${+campos.length + 1}`);
+      valores.push(valor === "" || valor === null ? null : String(valor).trim());
+    }
+  }
+
+  if (campos.length === 0) {
+    return res.status(400).json({ ok: false, mensaje: "No hay campos de contacto para actualizar" });
+  }
+
+  try {
+    const resultado = await pool.query(
+      `UPDATE clientes
+       SET ${campos.join(", ")}
+       WHERE id_cliente = $${campos.length + 1}
+       RETURNING id_cliente, nombre, apellido, email, telefono, direccion, ciudad, departamento`,
+      [...valores, id]
+    );
+
+    if (resultado.rows.length === 0) {
+      return res.status(404).json({ ok: false, mensaje: "Cliente no encontrado" });
+    }
+
+    res.status(200).json({ ok: true, data: resultado.rows[0], mensaje: "Datos de contacto actualizados correctamente" });
+  } catch (error) {
+    console.error("Error actualizando contacto del cliente:", error.message);
+    res.status(500).json({ ok: false, mensaje: "Error interno al actualizar el contacto" });
   }
 };
