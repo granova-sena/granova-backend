@@ -1,5 +1,6 @@
 import pool from "../config/db.js"
 import { devolverStockPedido } from "../utils/stockPedido.js"
+import { obtenerParametro } from "../controllers/admin/parametrosController.js"
 
 // Pedidos creados por pasarela online (su pago se confirma con Wompi).
 const METODOS_PASARELA = ["tarjeta", "pse", "nequi", "daviplata"]
@@ -11,7 +12,10 @@ const METODOS_PASARELA = ["tarjeta", "pse", "nequi", "daviplata"]
 // motivo del rechazo. Idempotente y segura: solo toca pedidos que siguen
 // en estado 'confirmado' con pago 'pendiente'.
 // ─────────────────────────────────────────
-export async function cancelarPendientesVencidos({ horas = 3 } = {}) {
+export async function cancelarPendientesVencidos({ horas } = {}) {
+  // La ventana de pago es configurable en parametros_cafe (TIEMPO_PAGO_HORAS);
+  // `horas` (env/parametrización) solo actúa como respaldo si no hay fila.
+  const horasEfectivas = await obtenerParametro("TIEMPO_PAGO_HORAS", horas ?? 3)
   const client = await pool.connect()
   const cancelados = []
 
@@ -28,7 +32,7 @@ export async function cancelarPendientesVencidos({ horas = 3 } = {}) {
         ORDER BY p.fecha_pedido
         LIMIT 200
         FOR UPDATE SKIP LOCKED`,
-      [METODOS_PASARELA, String(horas)]
+      [METODOS_PASARELA, String(horasEfectivas)]
     )
 
     for (const fila of vencidos.rows) {

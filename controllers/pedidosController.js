@@ -417,12 +417,23 @@ export const obtenerPedido = async (req, res) => {
         [id]
       );
 
+    const operacion = pedido.rows[0].operacion;
+      const esReparto = operacion === "reparto";
+      const estimados = {
+        preparacion_horas: await obtenerParametro("TIEMPO_PREPARACION_HORAS", 6),
+        entrega_horas: await obtenerParametro(
+          esReparto ? "TIEMPO_ENTREGA_REPARTO_HORAS" : "TIEMPO_ENTREGA_DOMICILIO_HORAS",
+          esReparto ? 48 : 24
+        ),
+      };
+
     res.status(200).json({
       ok: true,
       data: {
         ...pedido.rows[0],
         numero_pedido: formatearNumeroPedido(pedido.rows[0].id_pedido),
-        productos: detalle.rows
+        productos: detalle.rows,
+        estimados,
       }
     });
 
