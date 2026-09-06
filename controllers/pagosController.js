@@ -105,7 +105,7 @@ export const obtenerEstadoPago = async (req, res) => {
     const pedidoQuery = await pool.query(
       `SELECT p.id_pedido, p.id_cliente, p.estado, p.estado_pago, p.total, p.metodo_pago,
               p.direccion_envio, p.ciudad_envio,
-              c.nombre, c.apellido, c.email, c.telefono
+              c.nombre, c.apellido, c.email, c.telefono, c.departamento
        FROM pedidos p
        JOIN clientes c ON c.id_cliente = p.id_cliente
        WHERE p.id_pedido = $1`,
@@ -147,23 +147,34 @@ export const obtenerEstadoPago = async (req, res) => {
 
       if (referencia) {
         const nombreCompleto = [pedido.nombre, pedido.apellido].filter(Boolean).join(" ").trim()
+
+        // El widget de Wompi exige llaves camelCase (fullName/phoneNumber/
+        // addressLine1) y NUNCA valores undefined: solo se envían los campos
+        // presentes. La firma va como { integrity }.
+        const customer_data = {}
+        if (pedido.email) customer_data.email = pedido.email
+        if (nombreCompleto) customer_data.fullName = nombreCompleto
+        if (pedido.telefono) customer_data.phoneNumber = pedido.telefono
+
+        let shipping_address = null
+        if (pedido.direccion_envio && pedido.ciudad_envio && pedido.departamento && pedido.telefono) {
+          shipping_address = {
+            addressLine1: pedido.direccion_envio,
+            city: pedido.ciudad_envio,
+            country: "CO",
+            region: pedido.departamento,
+            phoneNumber: pedido.telefono,
+          }
+        }
+
         checkout = {
           currency: MONEDA_DEFECTO,
           amount_in_cents: montoEnCentavos,
           reference: referencia,
           public_key: WOMPI_PUBLIC_KEY,
-          signature: calcularFirmaIntegridad({ referencia, montoEnCentavos }),
-          customer_data: {
-            email: pedido.email || undefined,
-            full_name: nombreCompleto || undefined,
-            phone_number: pedido.telefono || undefined,
-          },
-          shipping_address: {
-            address_line_1: pedido.direccion_envio || undefined,
-            city: pedido.ciudad_envio || undefined,
-            country: "CO",
-            phone_number: pedido.telefono || undefined,
-          },
+          signature: { integrity: calcularFirmaIntegridad({ referencia, montoEnCentavos }) },
+          customer_data: Object.keys(customer_data).length > 0 ? customer_data : undefined,
+          shipping_address: shipping_address || undefined,
         }
       }
     }
