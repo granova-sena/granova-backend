@@ -21,6 +21,12 @@ export async function aplicarResultadoPago(client, pago, resultado) {
     return null
   }
 
+  // Un pedido cancelado (auto/manual) nunca debe revivir porque llegue una
+  // confirmación tardía: no se otorgan puntos ni se toca el stock.
+  if (pago.estado_pedido === "cancelado") {
+    return null
+  }
+
   if (resultado === "aprobado") {
     await client.query(
       `UPDATE pagos SET estado = 'aprobado', fecha_pago = NOW() WHERE id_pago = $1`,

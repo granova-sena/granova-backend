@@ -198,7 +198,10 @@ async function aplicarEstadoTransaccion(client, transaccion) {
   }
 
   const resultado = await aplicarResultadoPago(client, pago.rows[0], estadoPagoParaResultado(status))
-  return { encontrado: true, aplicado: !!resultado, estado_pago: resultado?.estado_pago || estadoPagoFinal(status) }
+  if (resultado) {
+    return { encontrado: true, aplicado: true, ...resultado }
+  }
+  return { encontrado: true, aplicado: false, estado_pago: estadoPagoFinal(status) }
 }
 
 // ─────────────────────────────────────────

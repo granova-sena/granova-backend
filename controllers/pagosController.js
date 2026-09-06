@@ -138,7 +138,7 @@ export const obtenerEstadoPago = async (req, res) => {
     let checkout = null
     const metodo = (pedido.metodo_pago || "").toLowerCase()
     const esMetodoPasarela = METODOS_PASARELA.includes(metodo)
-    if (modoPasarela() === "wompi" && esMetodoPasarela && WOMPI_PUBLIC_KEY && ["pendiente", "fallido"].includes(pedido.estado_pago)) {
+    if (modoPasarela() === "wompi" && esMetodoPasarela && WOMPI_PUBLIC_KEY && ["pendiente", "fallido"].includes(pedido.estado_pago) && pedido.estado !== "cancelado") {
       const montoEnCentavos = Math.round(Number(pedido.total) * 100)
       const referencia = await prepararReferenciaWompi(id, pago, pedido.estado_pago)
       if (pago && pago.referencia !== referencia) {
@@ -154,7 +154,11 @@ export const obtenerEstadoPago = async (req, res) => {
         const customer_data = {}
         if (pedido.email) customer_data.email = pedido.email
         if (nombreCompleto) customer_data.fullName = nombreCompleto
-        if (pedido.telefono) customer_data.phoneNumber = pedido.telefono
+        if (pedido.telefono) {
+          customer_data.phoneNumber = pedido.telefono
+          // Wompi exige el prefijo del país junto al phoneNumber (formato "+57").
+          customer_data.phoneNumberPrefix = "+57"
+        }
 
         let shipping_address = null
         if (pedido.direccion_envio && pedido.ciudad_envio && pedido.departamento && pedido.telefono) {

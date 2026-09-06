@@ -2,6 +2,7 @@ import pool from "../config/db.js";
 import { crearSesionPago } from "../utils/pasarela.js";
 import { obtenerParametro } from "./admin/parametrosController.js";
 import { formatearNumeroPedido } from "../utils/formatearNumeroPedido.js";
+import { devolverStockPedido } from "../utils/stockPedido.js";
 
 // ─────────────────────────────────────────
 // POST /api/pedidos (requiere token de cliente)
@@ -433,6 +434,99 @@ export const obtenerPedido = async (req, res) => {
     });
   }
 };
+// ─────────────────────────────────────────
+// POST /api/pedidos/:id/cancelar
+// El CLIENTE cancela un pedido que todavía no se pagó ni se despachó.
+// Devuelve el stock reservado (solo la primera vez) y deja el pedido en
+// 'cancelado'. Para pedidos ya pagados/en camino la cancelación sigue
+// siendo exclusiva del panel admin (maneja reembolsos).
+// ─────────────────────────────────────────
+export const cancelarPedido = async (req, res) => {
+  const { id } = req.params
+
+  if (Number.isNaN(Number(id))) {
+    return res.status(400).json({ ok: false, mensaje: "El id del pedido debe ser un número" })
+  }
+
+  const esAdmin = !!req.usuario?.rol
+  if (!esAdmin && !req.usuario?.id) {
+    return res.status(401).json({ ok: false, mensaje: "Debes iniciar sesión para cancelar un pedido" })
+  }
+
+  const client = await pool.connect()
+  try {
+    await client.query("BEGIN")
+
+    const pedidoQuery = await client.query(
+      `SELECT p.id_pedido, p.id_cliente, p.estado, p.estado_pago, p.metodo_pago
+         FROM pedidos p
+         LEFT JOIN pagos pg ON pg.id_pedido = p.id_pedido
+        WHERE p.id_pedido = $1
+        ORDER BY pg.id_pago DESC
+        LIMIT 1
+        FOR UPDATE OF p`,
+      [id]
+    )
+    const pedido = pedidoQuery.rows[0]
+    if (!pedido) {
+      await client.query("ROLLBACK")
+      return res.status(404).json({ ok: false, mensaje: "Pedido no encontrado" })
+    }
+
+    const esDueno = Number(req.usuario?.id) === Number(pedido.id_cliente)
+    if (!esAdmin && !esDueno) {
+      await client.query("ROLLBACK")
+      return res.status(403).json({ ok: false, mensaje: "No tienes permiso para cancelar este pedido" })
+    }
+
+    if (pedido.estado === "cancelado") {
+      await client.query("ROLLBACK")
+      return res.status(400).json({ ok: false, mensaje: "Este pedido ya fue cancelado" })
+    }
+    if (!["confirmado", "pendiente"].includes(pedido.estado)) {
+      await client.query("ROLLBACK")
+      return res.status(400).json({ ok: false, mensaje: "Solo se pueden cancelar pedidos que aún no se han despachado" })
+    }
+    if (pedido.estado_pago === "pagado") {
+      await client.query("ROLLBACK")
+      return res.status(400).json({ ok: false, mensaje: "Este pedido ya fue pagado. Contacta al equipo para solicitar una cancelación" })
+    }
+
+    const pagoQuery = await client.query(
+      `SELECT estado FROM pagos WHERE id_pedido = $1 ORDER BY id_pago DESC LIMIT 1`,
+      [id]
+    )
+    const estadoPagoFila = pagoQuery.rows[0]?.estado
+
+    // El stock se devuelve SOLO si sigue reservado (pagos 'pendiente').
+    // Si el pago ya falló una vez (pagos 'fallido'), el stock ya se había
+    // devuelto en ese momento y devolverlo otra vez lo duplicaría.
+    if (estadoPagoFila === "pendiente") {
+      await devolverStockPedido(client, id)
+    }
+
+    await client.query(
+      `UPDATE pedidos SET estado = 'cancelado', motivo_rechazo = $1 WHERE id_pedido = $2`,
+      ["Cancelado por el cliente antes de pagar", id]
+    )
+
+    await client.query(
+      `INSERT INTO notificaciones (id_cliente, tipo, titulo, mensaje, id_pedido)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [pedido.id_cliente, "pedido", "Pedido cancelado ❌", "Cancelaste tu pedido antes de pagar. El stock ya fue liberado.", id]
+    )
+
+    await client.query("COMMIT")
+    return res.json({ ok: true, mensaje: "Pedido cancelado. El stock fue liberado." })
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {})
+    console.error("Error cancelando pedido:", error.message)
+    return res.status(500).json({ ok: false, mensaje: "Error interno al cancelar el pedido" })
+  } finally {
+    client.release()
+  }
+}
+
 // GET /api/pedidos/cliente/:id_cliente
 export const obtenerPedidosCliente = async (req, res) => {
   const { id_cliente } = req.params

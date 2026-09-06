@@ -29,6 +29,7 @@ import pagosRoutes from "./routes/pagosRoutes.js"
 import despachoRoutes from "./routes/despachoRoutes.js"
 import parametrosPublicosRoutes from "./routes/parametrosPublicosRoutes.js"
 import wompiRoutes from "./routes/wompiRoutes.js"
+import { cancelarPendientesVencidos } from "./services/limpiezaPedidos.js"
 
 // Rutas admin (Daniel)
 import dashboardRoutes    from "./routes/admin/dashboardRoutes.js"
@@ -133,4 +134,19 @@ app.get("/", (req, res) => {
 
 app.listen(puerto, () => {
   console.log(`Servidor corriendo en el puerto ${puerto}`)
+
+  // Limpieza de pedidos pendientes de pago vencidos (pasarela online):
+  // cancela y devuelve stock después de N horas sin pagar.
+  const horas = Number(process.env.CANCELAR_PENDIENTES_HORAS) || 3
+  const cadaMinutos = 15
+  const ejecutarLimpieza = () =>
+    cancelarPendientesVencidos({ horas })
+      .then((cancelados) => {
+        if (cancelados.length > 0) {
+          console.log(`Limpieza: ${cancelados.length} pedidos pendientes vencidos cancelados`)
+        }
+      })
+      .catch(() => {})
+  ejecutarLimpieza()
+  setInterval(ejecutarLimpieza, cadaMinutos * 60 * 1000)
 })
