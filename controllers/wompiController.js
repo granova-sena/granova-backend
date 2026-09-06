@@ -161,7 +161,8 @@ async function aplicarEstadoTransaccion(client, transaccion) {
 
   const pago = await client.query(
     `SELECT pg.id_pago, pg.id_pedido, pg.metodo_pago, pg.monto, pg.estado,
-            p.id_cliente, p.estado AS estado_pedido, p.estado_pago, p.total
+            p.id_cliente, p.estado AS estado_pedido, p.estado_pago, p.total,
+            p.metodo_pago AS metodo_pedido
      FROM pagos pg
      JOIN pedidos p ON p.id_pedido = pg.id_pedido
      WHERE pg.id_pedido = $1
@@ -174,15 +175,26 @@ async function aplicarEstadoTransaccion(client, transaccion) {
     return { encontrado: true, aplicado: false, estado_pago: null }
   }
 
-  // Si el cliente pagó con un medio distinto al que eligió en el pedido,
-  // reflejamos el método real que reporta Wompi.
+  // Si el cliente pagó con un medio distinto al que quedó en el pedido
+  // (o el pedido usa el marcador "pse" del pago en línea), reflejamos el
+  // método real que reporta Wompi tanto en `pagos` como en `pedidos`.
   const metodoReal = METODO_LOCAL_POR_WOMPI[payment_method_type]
-  if (metodoReal && pago.rows[0].metodo_pago !== metodoReal) {
-    await client.query(
-      `UPDATE pagos SET metodo_pago = $1 WHERE id_pago = $2`,
-      [metodoReal, pago.rows[0].id_pago]
-    )
-    pago.rows[0].metodo_pago = metodoReal
+  if (metodoReal) {
+    const updatePagos = pago.rows[0].metodo_pago !== metodoReal
+    const updatePedidos = pago.rows[0].metodo_pedido !== metodoReal
+    if (updatePagos || updatePedidos) {
+      await client.query(
+        `UPDATE pagos SET metodo_pago = $1 WHERE id_pago = $2`,
+        [metodoReal, pago.rows[0].id_pago]
+      )
+      if (updatePedidos) {
+        await client.query(
+          `UPDATE pedidos SET metodo_pago = $1 WHERE id_pedido = $2`,
+          [metodoReal, id_pedido]
+        )
+      }
+      pago.rows[0].metodo_pago = metodoReal
+    }
   }
 
   const resultado = await aplicarResultadoPago(client, pago.rows[0], estadoPagoParaResultado(status))

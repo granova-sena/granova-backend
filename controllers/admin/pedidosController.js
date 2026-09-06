@@ -471,7 +471,7 @@ const marcarPago = async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Este pedido ya está pagado.' });
     }
     // La pasarela se procesa por el cliente en /api/pagos, no por el panel.
-    if (['wompi', 'tarjeta', 'pse', 'nequi', 'daviplata'].includes(pedido.metodo_pago) && pedido.estado_pago === 'pendiente') {
+    if (['tarjeta', 'pse', 'nequi', 'daviplata'].includes(pedido.metodo_pago) && pedido.estado_pago === 'pendiente') {
       await client.query('ROLLBACK');
       return res.status(400).json({ ok: false, error: 'Este pedido usa pasarela: el pago se confirma al cliente.' });
     }

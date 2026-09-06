@@ -41,7 +41,7 @@ export const crearPedido = async (req, res) => {
   }
 
   // Validar que metodo_pago sea un valor permitido por la base de datos
-  const metodosPagoPermitidos = ["wompi", "tarjeta", "pse", "efectivo", "transferencia", "contra_entrega", "nequi", "daviplata"];
+  const metodosPagoPermitidos = ["tarjeta", "pse", "efectivo", "transferencia", "contra_entrega", "nequi", "daviplata"];
   if (!metodosPagoPermitidos.includes(metodo_pago)) {
     return res.status(400).json({
       ok: false,
@@ -246,7 +246,7 @@ export const crearPedido = async (req, res) => {
     // El estado_pago es independiente (doc 01): la pasarela lo paga al aprobar;
     // manual (transferencia/efectivo) lo marca el panel y contra entrega lo
     // confirma el cliente al recibir.
-    const ES_PASARELA = ["wompi", "tarjeta", "pse", "nequi", "daviplata"].includes(metodo_pago);
+    const ES_PASARELA = ["tarjeta", "pse", "nequi", "daviplata"].includes(metodo_pago);
     const estadoInicial = "confirmado";
     const estadoPagoInicial =
       metodo_pago === "contra_entrega"
