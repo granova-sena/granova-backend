@@ -95,9 +95,9 @@ export const guardarPreferencias = async (req, res) => {
 }
 
 const PRESUPUESTO_EQUIPO_RANGO = {
-  economico: { min: 0, max: 1000000 },
-  medio: { min: 1000000, max: 3000000 },
-  premium: { min: 3000000, max: 999999999 }
+  economico: { min: 0, max: 300000 },
+  medio: { min: 300000, max: 700000 },
+  premium: { min: 700000, max: 1000000 }
 }
 
 const CLAVES_EQUIPO = {
@@ -163,7 +163,6 @@ export const obtenerRecomendaciones = async (req, res) => {
 
     // Mapear presupuesto a rango de precios
     const presupuestoRango = {
-      menos_20000: { min: 0, max: 20000 },
       '20000_50000': { min: 20000, max: 50000 },
       mas_50000: { min: 50000, max: 999999999 }
     }
