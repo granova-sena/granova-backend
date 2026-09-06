@@ -17,7 +17,7 @@ const DESCUENTO_JURIDICA = 10;
 const UMBRAL_UNIDADES_REPARTO = 20;
 const UMBRAL_TOTAL_REPARTO = 500000;
 
-const ES_PASARELA = ['tarjeta', 'pse', 'nequi', 'daviplata'];
+const ES_PASARELA = ['wompi', 'tarjeta', 'pse', 'nequi', 'daviplata'];
 
 class ErrorPedido extends Error {
   constructor(mensaje, codigo) {

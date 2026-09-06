@@ -16,7 +16,7 @@ function normalizar(texto) {
     .trim();
 }
 
-const METODOS_PAGO = ["tarjeta", "pse", "efectivo", "transferencia", "contra_entrega", "nequi", "daviplata"];
+const METODOS_PAGO = ["wompi", "tarjeta", "pse", "efectivo", "transferencia", "contra_entrega", "nequi", "daviplata"];
 const ESTADOS_PAGO = ["pendiente", "pendiente_verificacion", "pagado", "fallido", "reembolsado"];
 const ESTADOS_PEDIDO = ["pendiente", "confirmado", "en_proceso", "enviado", "entregado", "cancelado"];
 

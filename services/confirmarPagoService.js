@@ -1,7 +1,7 @@
 import { descontarStockPedido, devolverStockPedido } from "../utils/stockPedido.js"
 import { finalizarBeneficiosLealtad } from "../utils/finalizarLealtad.js"
 
-export const METODOS_PASARELA = ["tarjeta", "pse", "nequi", "daviplata"]
+export const METODOS_PASARELA = ["wompi", "tarjeta", "pse", "nequi", "daviplata"]
 
 // ─────────────────────────────────────────
 // Aplica el desenlace de un pago ('aprobado' | 'rechazado') DENTRO de una
