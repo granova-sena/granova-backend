@@ -6,6 +6,44 @@ const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || "https://n8n-production-a
 const N8N_WEBHOOK_URL_CLIENTE = process.env.N8N_WEBHOOK_URL_CLIENTE || "https://n8n-production-aacb.up.railway.app/webhook/Chat-Cliente"
 
 
+// Extrae el texto legible de lo que devuelva n8n, sin depender de un único
+// campo: puede venir como {respuesta}, {mensaje}, {message}, {output}, un
+// string suelto o un array (varios turnos de chat).
+function extraerTextoRespuesta(entrada) {
+    if (entrada == null) return "";
+    if (typeof entrada === "string") return entrada.trim();
+    if (Array.isArray(entrada)) {
+        return entrada.map((e) => extraerTextoRespuesta(e)).filter(Boolean).join("\n").trim();
+    }
+    if (typeof entrada === "object") {
+        for (const clave of ["respuesta", "mensaje", "message", "text", "output", "content", "reply", "contenido"]) {
+            const valor = entrada[clave];
+            if (valor != null && String(valor).trim()) return String(valor).trim();
+        }
+        if (Array.isArray(entrada.choices) && entrada.choices[0]?.message?.content) {
+            return String(entrada.choices[0].message.content).trim();
+        }
+        if (entrada.result != null || entrada.data != null) {
+            return extraerTextoRespuesta(entrada.result ?? entrada.data);
+        }
+    }
+    return "";
+}
+
+// Normaliza cualquier respuesta de n8n al contrato del frontend:
+// { respuesta, accion, parametros }. La accion/parametros pasan tal cual
+// cuando n8n las manda (p.ej. agregar_carrito).
+function normalizarRespuestaAsistente(parseado) {
+    const objeto = Array.isArray(parseado) ? {} : (parseado || {});
+    const respuesta = extraerTextoRespuesta(parseado);
+    return {
+        respuesta: respuesta || "No obtuve una respuesta del asistente. Intenta reformular tu pregunta la próxima vez.",
+        accion: objeto.accion ?? null,
+        parametros: objeto.parametros ?? {},
+    };
+}
+
+
 export async function chatConAsistente(req, res) {
     try {
         const { mensaje, idAdmin } = req.body
@@ -35,8 +73,16 @@ export async function chatConAsistente(req, res) {
             })
         }
 
-        const data = textoRespuesta ? JSON.parse(textoRespuesta) : {}
-        res.json(data)
+        let data = {};
+        if (textoRespuesta) {
+            try {
+                data = JSON.parse(textoRespuesta);
+            } catch {
+                // n8n devolvió un texto plano (no JSON): se usa como respuesta.
+                data = textoRespuesta;
+            }
+        }
+        res.json(normalizarRespuestaAsistente(data));
 
     } catch (error) {
         console.error("Error en chatConAsistente:", error.name, error.message)
@@ -89,8 +135,16 @@ export async function chatConAsistenteCliente(req, res) {
             })
         }
 
-        const data = textoRespuesta ? JSON.parse(textoRespuesta) : {}
-        res.json(data)
+        let data = {};
+        if (textoRespuesta) {
+            try {
+                data = JSON.parse(textoRespuesta);
+            } catch {
+                // n8n devolvió un texto plano (no JSON): se usa como respuesta.
+                data = textoRespuesta;
+            }
+        }
+        res.json(normalizarRespuestaAsistente(data));
 
     } catch (error) {
         console.error("Error en chatConAsistenteCliente:", error.name, error.message)

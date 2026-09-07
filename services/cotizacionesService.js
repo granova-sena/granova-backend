@@ -4,7 +4,7 @@ import {
   buscarCotizacionPorId, marcarCotizacionComprada, eliminarCotizacion,
 } from '../models/cotizacionesModel.js';
 import { insertarProductoCotizacion, buscarProductosPorCotizacion } from '../models/cotizacionesProductosModel.js';
-import { crearPedidoCompleto, calcularTotalActual} from './pedidosService.js';
+import { crearPedidoCompleto } from './pedidosService.js';
 
 class ErrorCotizacion extends Error {
     constructor(mensaje, codigo){
@@ -116,35 +116,27 @@ export async function comprarCotizacion(id_cotizacion, id_cliente, datosCompra){
         throw new ErrorCotizacion('Esta cotizacion ya expiro','EXPIRADA');
     }
 
-    const productosParaPedido = cotizacion.productos.map((p)=>({
+    // El pedido se crea con los precios y el total tal cual se guardaron en la
+    // cotización (sin recalcular contra el catálogo), para que el cliente pague
+    // exactamente lo que se le cotizó y nunca aparezca el aviso de cambio de precio.
+    const productosFijos = cotizacion.productos.map((p) => ({
         id_producto: p.id_producto,
-        id_formato: p.id_formato,
+        id_formato: p.id_formato ?? null,
         cantidad: p.cantidad,
-    })
-    );
-    const  {total: totalActual} =  await calcularTotalActual({
-        id_cliente,
-        productos:  productosParaPedido,
-        codigo_cupon: datosCompra.codigo_cupon,
-    });
-    const totalCotizado = Number(cotizacion.total);
-    const precioCambio = totalActual !== totalCotizado;
-
-    if(precioCambio && !datosCompra.confirmarCambioPrecio){
-        const error = new ErrorCotizacion('El precio cambió desde que se genero esta cotizacion', 'PRECIO_CAMBIO');
-        error.totalCotizado = totalCotizado;
-        error.totalActual = totalActual;
-        throw error;
-    }
+        precio_unitario: Number(p.precio_unitario ?? 0),
+    }));
 
     const resultadoPedido = await crearPedidoCompleto({
         id_cliente,
         metodo_pago: datosCompra.metodo_pago,
         direccion_envio: datosCompra.direccion_envio,
         ciudad_envio: datosCompra.ciudad_envio,
-        productos: productosParaPedido,
-        codigo_cupon: datosCompra.codigo_cupon,
+        productos: productosFijos,
+        codigo_cupon: undefined,
         sector_envio: datosCompra.sector_envio ?? null,
+        preciosFijos: true,
+        totalFijo: Number(cotizacion.total),
+        descuentoFijo: Number(cotizacion.descuento ?? 0),
     });
 
     const client = await pool.connect();

@@ -86,6 +86,17 @@ export const crearFactura = async (req, res) => {
             });
         }
 
+        // 1c. El cliente solo puede emitir/descargar su factura una vez que el
+        // pago esté confirmado. El personal del panel sí puede emitir en cualquier
+        // momento (gestiona las facturas del punto de venta y entregas).
+        if (!esPanel && pedidoEncontrado.estado_pago !== "pagado") {
+            await client.query("ROLLBACK");
+            return res.status(400).json({
+                ok:     false,
+                mensaje: "La factura se habilita cuando el pago esté confirmado",
+            });
+        }
+
         // 2. Verificar que no tenga factura. Si ya existe, el POST es
         // idempotente: se devuelve la factura existente en vez de un error,
         // para que el flujo cliente "generar y descargar" siempre funcione

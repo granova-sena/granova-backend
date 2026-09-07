@@ -31,7 +31,7 @@ function calcularPrecioProducto({ precioBase, promoPct, pctVolumen, esJuridica }
   return pctGanador > 0 ? Math.round(precioBase * (1 - pctGanador / 100)) : precioBase;
 }
 
-async function procesarProductosDelPedido(client, productos, { esMayorista, esJuridica }) {
+async function procesarProductosDelPedido(client, productos, { esMayorista, esJuridica, preciosFijos = false }) {
   const productosConPrecio = [];
 
   for (const p of productos) {
@@ -80,12 +80,20 @@ async function procesarProductosDelPedido(client, productos, { esMayorista, esJu
     : (totalUnidades >= UNIDADES_MINIMAS_DESCUENTO_MINORISTA ? DESCUENTO_MINORISTA : 0);
 
   for (const p of productosConPrecio) {
-    p.precio_unitario = calcularPrecioProducto({
+    // preciosFijos=true: se respeta el precio_unitario que trae el item
+    // (cotización guardada), sin recalcular contra el catálogo actual.
+    const precioCalculado = calcularPrecioProducto({
       precioBase: p.precio_base,
       promoPct: p.promo_pct,
       pctVolumen,
       esJuridica,
     });
+    p.precio_unitario = preciosFijos && Number.isFinite(Number(p.precio_unitario))
+      ? Number(p.precio_unitario)
+      : precioCalculado;
+    if (preciosFijos) {
+      p.precio_base = p.precio_unitario;
+    }
   }
 
   return productosConPrecio;
@@ -105,7 +113,7 @@ async function aplicarCupon(client, codigo_cupon, id_cliente, esJuridica) {
   return rows[0];
 }
 
-export async function crearPedidoCompleto({ id_cliente, metodo_pago, direccion_envio, ciudad_envio, productos, codigo_cupon, sector_envio }) {
+export async function crearPedidoCompleto({ id_cliente, metodo_pago, direccion_envio, ciudad_envio, productos, codigo_cupon, sector_envio, preciosFijos = false, totalFijo = null, descuentoFijo = null }) {
   const client = await pool.connect();
 
   try {
@@ -118,12 +126,14 @@ export async function crearPedidoCompleto({ id_cliente, metodo_pago, direccion_e
     const esMayorista = filasCliente[0].tipo_cliente === 'mayorista';
     const esJuridica = filasCliente[0].tipo_persona === 'juridica';
 
-    const productosConPrecio = await procesarProductosDelPedido(client, productos, { esMayorista, esJuridica });
-    const cupon = await aplicarCupon(client, codigo_cupon, id_cliente, esJuridica);
+    const productosConPrecio = await procesarProductosDelPedido(client, productos, { esMayorista, esJuridica, preciosFijos });
+    // Con precios fijos (cotización) el total ya viene decidido; no se aplica cupón nuevo.
+    const cupon = preciosFijos ? null : await aplicarCupon(client, codigo_cupon, id_cliente, esJuridica);
 
     const subtotalSinCupon = productosConPrecio.reduce((acc, p) => acc + p.precio_unitario * p.cantidad, 0);
     const descuentoCuponMonto = cupon ? Math.round(subtotalSinCupon * Number(cupon.descuento_pct) / 100) : 0;
-    const total = subtotalSinCupon - descuentoCuponMonto;
+    const total = preciosFijos ? Number(totalFijo) : subtotalSinCupon - descuentoCuponMonto;
+    const descuentoPedido = preciosFijos ? Number(descuentoFijo) : descuentoCuponMonto;
 
     // Mismas reglas de operación y estados que controllers/pedidosController.js:
     // el pedido nace 'confirmado' y la pasarela modifica estado_pago al aprobar.
@@ -143,7 +153,7 @@ export async function crearPedidoCompleto({ id_cliente, metodo_pago, direccion_e
 
     const { rows: filasPedido } = await insertarPedido(client, {
       id_cliente, metodo_pago, direccion_envio, ciudad_envio,
-      total, descuento: descuentoCuponMonto,
+      total, descuento: descuentoPedido,
       codigo_cupon: cupon ? cupon.codigo : null,
       estado: estadoInicial, estado_pago: estadoPagoInicial,
       operacion, sector_envio: sector,
@@ -192,7 +202,9 @@ export async function crearPedidoCompleto({ id_cliente, metodo_pago, direccion_e
       pago: referenciaPago ? { referencia: referenciaPago, metodo_pago } : null,
       puntos_pendientes: esJuridica ? 0 : Math.floor(total / 1000),
       descuento_productos: productosConPrecio.reduce((acc, p) => acc + (p.precio_base - p.precio_unitario) * p.cantidad, 0),
-      ...(cupon && { descuento_aplicado: descuentoCuponMonto, descuento_fuente: 'cupon', codigo_cupon: cupon.codigo }),
+      ...(preciosFijos
+        ? (descuentoPedido > 0 ? { descuento_aplicado: descuentoPedido, descuento_fuente: 'cotizacion' } : {})
+        : (cupon && { descuento_aplicado: descuentoCuponMonto, descuento_fuente: 'cupon', codigo_cupon: cupon.codigo })),
     };
   } catch (error) {
     await client.query('ROLLBACK');
