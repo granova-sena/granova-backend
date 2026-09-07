@@ -427,6 +427,24 @@ export const obtenerPedido = async (req, res) => {
         ),
       };
 
+    // Rastreo: el despacho (salida de reparto) donde va asignado el pedido.
+    // La guía ORV, el estado y las fechas viven en despachos; la transportadora
+    // se une por id_transportadora. Si el pedido aún no está en una salida,
+    // devolvemos null y la UI muestra el aviso "al despachar".
+    const rastreoQ = await pool.query(
+      `SELECT d.numero_guia AS guia, d.estado AS estado_despacho, d.sector_destino,
+              d.fecha_salida, d.fecha_entrega,
+              t.nombre AS transportadora, t.tipo_vehiculo, t.placa
+         FROM despacho_pedidos ddp
+         JOIN despachos d ON d.id_despacho = ddp.id_despacho
+         LEFT JOIN transportadoras t ON t.id_transportadora = d.id_transportadora
+        WHERE ddp.id_pedido = $1
+        ORDER BY d.fecha_creacion DESC
+        LIMIT 1`,
+      [id]
+    );
+    const rastreo = rastreoQ.rows[0] || null;
+
     res.status(200).json({
       ok: true,
       data: {
@@ -434,6 +452,7 @@ export const obtenerPedido = async (req, res) => {
         numero_pedido: formatearNumeroPedido(pedido.rows[0].id_pedido),
         productos: detalle.rows,
         estimados,
+        rastreo,
       }
     });
 

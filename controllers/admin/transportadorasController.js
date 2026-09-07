@@ -21,9 +21,9 @@ const listarTransportadoras = async (req, res) => {
     const result = await pool.query(`
       SELECT t.id_transportadora, t.tipo_persona, t.nombre, t.telefono, t.tipo,
              t.placa, t.nit, t.vehiculos, t.tipo_vehiculo, t.capacidad_kg, t.estado, t.imagen_url, t.fecha_creacion,
-             COUNT(e.id_envio)::int AS envios
+             COUNT(d.id_despacho)::int AS envios
       FROM transportadoras t
-      LEFT JOIN envios e ON e.id_transportadora = t.id_transportadora
+      LEFT JOIN despachos d ON d.id_transportadora = t.id_transportadora
       GROUP BY t.id_transportadora
       ORDER BY t.fecha_creacion DESC
     `)
@@ -112,7 +112,7 @@ const eliminarTransportadora = async (req, res) => {
     if (Number.isNaN(Number(id))) {
       return res.status(400).json({ ok: false, error: "El id de la transportadora debe ser un número" })
     }
-    const enUso = await pool.query(`SELECT 1 FROM envios WHERE id_transportadora = $1 LIMIT 1`, [id])
+    const enUso = await pool.query(`SELECT 1 FROM despachos WHERE id_transportadora = $1 LIMIT 1`, [id])
     if (enUso.rows.length > 0) {
       return res.status(400).json({ ok: false, error: "No se puede eliminar: tiene envíos asociados." })
     }

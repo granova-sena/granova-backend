@@ -1,4 +1,5 @@
 import pool from "../config/db.js"
+import transportador from "../config/email.js"
 
 // ─────────────────────────────────────────────────────────────
 // Módulo de Despacho (rol logistica): agrupa pedidos de REPARTO
@@ -79,6 +80,69 @@ async function devolverPedidoASinSalida(client, idPedido) {
   await client.query(`UPDATE pedidos SET estado = 'confirmado' WHERE id_pedido = $1`, [idPedido]);
 }
 
+const escapeHtml = (valor) =>
+  String(valor ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+
+// Correo de despacho (Brevo): se envía al cliente cuando su pedido de reparto
+// sale en una salida ("En ruta"). Nunca rompe la operación: si el correo falla,
+// el despacho ya queda registrado y la notificación in-app es suficiente.
+async function enviarCorreoDespacho({ email, nombre, numeroPedido, guia, transportadora, tipoVehiculo, placa, sector, fechaSalida }) {
+  if (!email || !EMAIL_REGEX.test(String(email))) return;
+  const URL_FRONTEND = process.env.FRONTEND_URL || "https://www.granovaoficial.com";
+  try {
+    const contenidoHTML = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background-color: #1C3A0A; padding: 20px; text-align: center;">
+          <h1 style="color: white; margin: 0;">GRANOVA</h1>
+          <p style="color: #D4C49A; margin: 5px 0 0;">Tu pedido va en camino 🚚</p>
+        </div>
+        <div style="padding: 24px;">
+          <p>Hola <strong>${escapeHtml(nombre)}</strong>,</p>
+          <p>Tu pedido <strong>${escapeHtml(numeroPedido)}</strong> salió en la ruta de hoy y el transportador ya lo tiene.</p>
+          <table style="width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px;">
+            <tr>
+              <td style="padding: 8px; border-bottom: 1px solid #e7e7e7; color: #888;">N° de guía</td>
+              <td style="padding: 8px; border-bottom: 1px solid #e7e7e7; font-weight: bold;">${escapeHtml(guia)}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border-bottom: 1px solid #e7e7e7; color: #888;">Transportadora</td>
+              <td style="padding: 8px; border-bottom: 1px solid #e7e7e7;">${escapeHtml(transportadora)}${tipoVehiculo ? ` · ${escapeHtml(tipoVehiculo)}` : ''}${placa ? ` · ${escapeHtml(placa)}` : ''}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border-bottom: 1px solid #e7e7e7; color: #888;">Sector de entrega</td>
+              <td style="padding: 8px; border-bottom: 1px solid #e7e7e7;">${escapeHtml(sector) || '—'}</td>
+            </tr>
+            ${fechaSalida ? `<tr>
+              <td style="padding: 8px; border-bottom: 1px solid #e7e7e7; color: #888;">Fecha de salida</td>
+              <td style="padding: 8px; border-bottom: 1px solid #e7e7e7;">${new Date(fechaSalida).toLocaleString("es-CO")}</td>
+            </tr>` : ''}
+          </table>
+          <div style="text-align: center; margin: 24px 0;">
+            <a href="${URL_FRONTEND}/cliente/pedidos" style="background-color: #6FA98C; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
+              Hacer seguimiento de mi pedido
+            </a>
+          </div>
+          <hr style="border: none; border-top: 1px solid #e7e7e7; margin: 20px 0;">
+          <p style="color: #888888; font-size: 12px;">
+            Si tienes dudas contáctanos por WhatsApp 300 123 4567.
+          </p>
+        </div>
+      </div>
+    `;
+    await transportador.sendMail({
+      to: email,
+      subject: `Tu pedido ${numeroPedido} va en camino (guía ${guia})`,
+      html: contenidoHTML,
+    });
+  } catch (error) {
+    console.error("Error enviando correo de despacho:", error.message);
+  }
+}
+
 const consultaDespachoBase = `
   SELECT
     d.id_despacho, d.numero_guia, d.id_transportadora, d.sector_destino,
@@ -87,7 +151,9 @@ const consultaDespachoBase = `
     t.nombre AS transportadora, t.tipo_vehiculo, t.imagen_url,
     u1.nombre AS creado_nombre, u1.apellido AS creado_apellido,
     u2.nombre AS confirmado_nombre, u2.apellido AS confirmado_apellido,
-    COUNT(dp.id_pedido)::int AS num_pedidos
+    COUNT(dp.id_pedido)::int AS num_pedidos,
+    (SELECT COUNT(*)::int FROM despacho_pedidos _dp
+     WHERE _dp.id_despacho = d.id_despacho AND _dp.estado = 'entregado') AS entregados_count
   FROM despachos d
   LEFT JOIN transportadoras t ON t.id_transportadora = d.id_transportadora
   LEFT JOIN despacho_pedidos dp ON dp.id_despacho = d.id_despacho
@@ -108,6 +174,7 @@ function mapearDespacho(row) {
     estado: row.estado,
     total_unidades: Number(row.total_unidades) || 0,
     num_pedidos: Number(row.num_pedidos) || 0,
+    entregados_count: Number(row.entregados_count) || 0,
     creado_por_nombre: row.creado_nombre ? `${row.creado_nombre} ${row.creado_apellido || ""}`.trim() : null,
     confirmado_por_nombre: row.confirmado_nombre ? `${row.confirmado_nombre} ${row.confirmado_apellido || ""}`.trim() : null,
     fecha_creacion: row.fecha_creacion,
@@ -137,6 +204,7 @@ async function obtenerDespachoDetalle(id) {
     `SELECT
        p.id_pedido, p.estado, p.estado_pago, p.metodo_pago, p.total, p.sector_envio, p.fecha_pedido,
        c.nombre, c.apellido, c.email,
+       ddp.estado AS entrega_estado, ddp.fecha_entregado, ddp.motivo_novedad,
        dp1.producto_nombre, dp_sum.cantidad_total
      FROM despacho_pedidos ddp
      JOIN pedidos p ON p.id_pedido = ddp.id_pedido
@@ -170,6 +238,9 @@ async function obtenerDespachoDetalle(id) {
     estado: bucketEstado(p.estado),
     estado_pago: p.estado_pago,
     metodo_pago: p.metodo_pago,
+    entrega_estado: p.entrega_estado || "pendiente",
+    fecha_entregado: p.fecha_entregado,
+    motivo_novedad: p.motivo_novedad,
     sector_envio: p.sector_envio || null,
     fecha: p.fecha_pedido,
   }));
@@ -392,7 +463,7 @@ export async function cambiarEstadoDespacho(req, res) {
 
     await client.query("BEGIN");
     const despacho = await client.query(
-      `SELECT estado, id_transportadora FROM despachos WHERE id_despacho = $1 FOR UPDATE`,
+      `SELECT estado, id_transportadora, numero_guia, sector_destino FROM despachos WHERE id_despacho = $1 FOR UPDATE`,
       [id]
     );
     if (despacho.rows.length === 0) {
@@ -417,12 +488,20 @@ export async function cambiarEstadoDespacho(req, res) {
 
     // Necesitamos los pedidos del despacho para actualizarlos y notificar.
     const pedidos = await client.query(
-      `SELECT ddp.id_pedido, p.id_cliente, p.estado, p.estado_pago
+      `SELECT ddp.id_pedido, p.id_cliente, p.estado, p.estado_pago,
+              c.email, c.nombre, c.apellido
        FROM despacho_pedidos ddp
        JOIN pedidos p ON p.id_pedido = ddp.id_pedido
+       JOIN clientes c ON c.id_cliente = p.id_cliente
        WHERE ddp.id_despacho = $1`,
       [id]
     );
+    const veh = await client.query(
+      `SELECT t.nombre, t.tipo_vehiculo, t.placa
+       FROM transportadoras t WHERE t.id_transportadora = $1`,
+      [despacho.rows[0].id_transportadora]
+    );
+    const vehData = veh.rows[0] || {};
 
     if (destino === "En ruta") {
       if (pedidos.rows.length === 0) {
@@ -433,24 +512,44 @@ export async function cambiarEstadoDespacho(req, res) {
       for (const p of pedidos.rows) {
         const estadoP = normalizar(p.estado);
         if (["cancelado", "rechazado"].includes(estadoP) || p.estado_pago === "fallido") continue;
-        if (estadoP !== "entregado") {
-          await client.query(`UPDATE pedidos SET estado = 'enviado' WHERE id_pedido = $1`, [p.id_pedido]);
-        }
+        // Idempotente: los pedidos ya 'enviado' (re-ruta de una novedad) o ya
+        // 'entregado' individualmente NO reciben otra notificación ni correo.
+        if (estadoP === "enviado" || estadoP === "entregado") continue;
+        await client.query(`UPDATE pedidos SET estado = 'enviado' WHERE id_pedido = $1`, [p.id_pedido]);
         const notif = TITULOS_NOTIFICACION.enviado;
         await client.query(
           `INSERT INTO notificaciones (id_cliente, tipo, titulo, mensaje, id_pedido)
            VALUES ($1, 'pedido', $2, $3, $4)`,
           [p.id_cliente, notif.titulo, notif.mensaje, p.id_pedido]
         );
+        await enviarCorreoDespacho({
+          email: p.email,
+          nombre: `${p.nombre} ${p.apellido}`.trim(),
+          numeroPedido: formatearPedido(p.id_pedido),
+          guia: despacho.rows[0].numero_guia,
+          transportadora: vehData.nombre,
+          tipoVehiculo: vehData.tipo_vehiculo,
+          placa: vehData.placa,
+          sector: despacho.rows[0].sector_destino,
+          fechaSalida: new Date(),
+        });
       }
     } else if (destino === "Entregado") {
       await client.query(
         `UPDATE despachos SET estado = 'Entregado', fecha_entrega = NOW(), confirmado_por = $1 WHERE id_despacho = $2`,
         [req.usuario?.id || null, id]
       );
+      await client.query(
+        `UPDATE despacho_pedidos SET estado = 'entregado', fecha_entregado = NOW()
+         WHERE id_despacho = $1`,
+        [id]
+      );
       for (const p of pedidos.rows) {
         const estadoP = normalizar(p.estado);
         if (["cancelado", "rechazado"].includes(estadoP)) continue;
+        // Si ese pedido ya se marcó entregado de forma individual, ya recibió
+        // su notificación de reseña: no se repite.
+        if (estadoP === "entregado") continue;
         await client.query(`UPDATE pedidos SET estado = 'entregado' WHERE id_pedido = $1`, [p.id_pedido]);
         const notif = TITULOS_NOTIFICACION.entregado;
         await client.query(
@@ -595,6 +694,139 @@ export async function reclasificarPedido(req, res) {
     await client.query("ROLLBACK").catch(() => {});
     console.error("Error en reclasificarPedido:", error);
     res.status(500).json({ ok: false, error: "No se pudo reclasificar el pedido." });
+  } finally {
+    client.release();
+  }
+}
+
+// PATCH /api/despachos/:id/pedidos/:idPedido  { accion: "entregado" | "novedad" | "pendiente", motivo? }
+// Marca un pedido individual dentro de una salida:
+//  - entregado: el pedido llega a "entregado" y se notifica al cliente.
+//    Si ya no quedan pedidos pendientes, el despacho pasa a "Entregado".
+//  - novedad: incidencia puntual del pedido (motivo obligatorio), el pedido
+//    se mantiene "enviado" y el despacho pasa a "Novedad".
+//  - pendiente: deshace un marcado (devolver el pedido y el despacho a En ruta).
+export async function marcarPedidoDespacho(req, res) {
+  const client = await pool.connect();
+  try {
+    const id = Number(req.params.id);
+    const idPedido = Number(req.params.idPedido);
+    const accion = String(req.body?.accion || "").trim();
+    const motivo = String(req.body?.motivo || "").trim();
+    if (Number.isNaN(id) || Number.isNaN(idPedido)) {
+      return res.status(400).json({ ok: false, error: "Parámetros inválidos." });
+    }
+    if (!["entregado", "novedad", "pendiente"].includes(accion)) {
+      return res.status(400).json({ ok: false, error: "Acción inválida. Usa: entregado, novedad o pendiente." });
+    }
+    if (accion === "novedad" && motivo.length < 3) {
+      return res.status(400).json({ ok: false, error: "Escribe el motivo de la novedad." });
+    }
+
+    await client.query("BEGIN");
+    const despacho = await client.query(
+      `SELECT estado FROM despachos WHERE id_despacho = $1 FOR UPDATE`,
+      [id]
+    );
+    if (despacho.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ ok: false, error: "Despacho no encontrado." });
+    }
+    const estadoDespacho = despacho.rows[0].estado;
+    if (estadoDespacho === "Entregado") {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ ok: false, error: "El despacho ya está entregado." });
+    }
+    if (estadoDespacho === "Preparando") {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ ok: false, error: "Marca el despacho como En ruta antes de registrar entregas." });
+    }
+
+    const fila = await client.query(
+      `SELECT ddp.id_pedido, p.id_cliente, p.estado
+       FROM despacho_pedidos ddp
+       JOIN pedidos p ON p.id_pedido = ddp.id_pedido
+       WHERE ddp.id_despacho = $1 AND ddp.id_pedido = $2
+       FOR UPDATE OF ddp`,
+      [id, idPedido]
+    );
+    if (fila.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ ok: false, error: "El pedido no pertenece a esta salida." });
+    }
+    const estadoPedido = normalizar(fila.rows[0].estado);
+    if (["cancelado", "rechazado"].includes(estadoPedido)) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ ok: false, error: "No se puede marcar un pedido cancelado o rechazado." });
+    }
+
+    if (accion === "entregado") {
+      await client.query(
+        `UPDATE despacho_pedidos SET estado = 'entregado', fecha_entregado = NOW(), motivo_novedad = NULL
+         WHERE id_despacho = $1 AND id_pedido = $2`,
+        [id, idPedido]
+      );
+      const afectado = await client.query(
+        `UPDATE pedidos SET estado = 'entregado' WHERE id_pedido = $1 AND lower(estado) <> 'entregado' RETURNING id_pedido`,
+        [idPedido]
+      );
+      if (afectado.rowCount > 0) {
+        const notif = TITULOS_NOTIFICACION.entregado;
+        await client.query(
+          `INSERT INTO notificaciones (id_cliente, tipo, titulo, mensaje, id_pedido)
+           VALUES ($1, 'reseña', $2, $3, $4)`,
+          [fila.rows[0].id_cliente, notif.titulo, notif.mensaje, idPedido]
+        );
+      }
+
+      const faltantes = await client.query(
+        `SELECT COUNT(*)::int AS n FROM despacho_pedidos
+         WHERE id_despacho = $1 AND COALESCE(estado, 'pendiente') <> 'entregado'`,
+        [id]
+      );
+      if (faltantes.rows[0].n === 0) {
+        await client.query(
+          `UPDATE despachos SET estado = 'Entregado', fecha_entrega = NOW(), confirmado_por = $1
+           WHERE id_despacho = $2`,
+          [req.usuario?.id || null, id]
+        );
+      }
+    } else if (accion === "novedad") {
+      await client.query(
+        `UPDATE despacho_pedidos SET estado = 'novedad', motivo_novedad = $1
+         WHERE id_despacho = $2 AND id_pedido = $3`,
+        [motivo, id, idPedido]
+      );
+      await client.query(
+        `UPDATE despachos SET estado = 'Novedad' WHERE id_despacho = $1 AND estado <> 'Novedad'`,
+        [id]
+      );
+    } else {
+      // pendiente: deshace la entrega o la novedad de ese pedido.
+      await client.query(
+        `UPDATE despacho_pedidos SET estado = 'pendiente', fecha_entregado = NULL, motivo_novedad = NULL
+         WHERE id_despacho = $1 AND id_pedido = $2`,
+        [id, idPedido]
+      );
+      await client.query(
+        `UPDATE pedidos SET estado = 'enviado' WHERE id_pedido = $1 AND lower(estado) = 'entregado'`,
+        [idPedido]
+      );
+      await client.query(
+        `UPDATE despachos SET estado = 'En ruta', fecha_entrega = NULL, confirmado_por = NULL
+         WHERE id_despacho = $1 AND estado = 'Entregado'`,
+        [id]
+      );
+    }
+
+    await client.query("COMMIT");
+
+    const despachoFinal = await obtenerDespachoDetalle(id);
+    res.json({ ok: true, despacho: despachoFinal });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("Error en marcarPedidoDespacho:", error);
+    res.status(500).json({ ok: false, error: "No se pudo actualizar el pedido del despacho." });
   } finally {
     client.release();
   }

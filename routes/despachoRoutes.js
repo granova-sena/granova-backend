@@ -2,6 +2,7 @@ import { Router } from "express"
 import {
   listarDespachos, obtenerDespacho, crearDespacho,
   modificarPedidosDespacho, cambiarEstadoDespacho,
+  marcarPedidoDespacho,
   pedidosDisponibles, reclasificarPedido, listarSectores,
 } from "../controllers/despachoController.js"
 import { verificarToken } from "../middleware/verificarToken.js"
@@ -24,6 +25,7 @@ router.get("/", puedeVer, listarDespachos)
 router.post("/", puedeEditar, crearDespacho)
 router.get("/:id", puedeVer, obtenerDespacho)
 router.patch("/:id/pedidos", puedeEditar, modificarPedidosDespacho)
+router.patch("/:id/pedidos/:idPedido", puedeEditar, marcarPedidoDespacho)
 router.patch("/:id/estado", puedeEditar, cambiarEstadoDespacho)
 router.patch("/pedidos/:id/operacion", puedeEditar, reclasificarPedido)
 

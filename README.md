@@ -1,2 +1,2 @@
 # granova-backend
-Backend de Granova - Node.js + Express + MySQL
+Backend de Granova - Node.js + Express + PostgreSQL (Supabase)
